@@ -1,0 +1,19 @@
+meta:
+  environment: python
+  toolchain:
+    name: pip
+    version: "3.11"
+
+build:
+  requirementsPath: requirements.txt
+
+run:
+  persistenceMount: /data
+  containerPort: 8000
+  args: ["python", "-m", "uvicorn", "agenomics.api:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# ПРИМЕЧАНИЕ: web-API (agenomics/api.py) в этой версии репозитория ещё
+# не реализован — это заготовка конфига под будущий веб-калькулятор
+# Trust Score (см. Roadmap в README.md, п. "v0.2 — веб-калькулятор").
+# Проверьте актуальный формат amvera.yml в вашей документации Amvera
+# перед первым деплоем — синтаксис мог измениться.
