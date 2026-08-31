@@ -4,6 +4,6 @@
 # Для тестов:
 pytest>=7.0
 
-# Для будущего веб-API (v0.2, см. amvera.yml) — раскомментировать при реализации:
-# fastapi>=0.110
-# uvicorn>=0.29
+# Для веб-API (agenomics/api.py, деплой через amvera.yml):
+fastapi>=0.110
+uvicorn[standard]>=0.29
