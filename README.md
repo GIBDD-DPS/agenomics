@@ -4,11 +4,11 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Status](https://img.shields.io/badge/status-v0.3.0-orange.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-v0.4.0-orange.svg)](CHANGELOG.md)
 [![PyPI](https://img.shields.io/badge/PyPI-agenomics-blue.svg)](https://pypi.org/project/agenomics/)
 
 > **Автор**: Dm.Andreyanov
-> **Версия**: 0.3.0
+> **Версия**: 0.4.0
 > **Связанные проекты**: [Prizolov Lab](https://prizolov.ru) / [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
 >
 > ⚠️ Методология следует **semver 0.x** — до релиза `1.0.0` обратная
@@ -156,14 +156,107 @@ curl -X POST https://<ваш-адрес-развёртывания>/compatibilit
 
 **Для кого:** Команды, которые хотят автоматизировать аудит в CI/CD или дашборде.
 
+## Модули v0.4
+
+Семь дополнительных модулей, расширяющих ядро (Trust Score + Compatibility Score):
+
+### Drift Monitor — тренд Trust Score во времени
+
+```python
+from agenomics import DriftMonitor
+
+monitor = DriftMonitor()
+monitor.record("cashflow-bot", score=88)
+monitor.record("cashflow-bot", score=75)
+monitor.record("cashflow-bot", score=62)
+report = monitor.report("cashflow-bot")
+print(report.trend, report.alert)  # 'degrading', True
+```
+
+### Incident Feedback — Observed Score на основе реальных инцидентов
+
+```python
+from agenomics import IncidentFeedback, Incident, IncidentSeverity
+
+feedback = IncidentFeedback()
+result = feedback.apply(
+    declared_score=88, declared_label="Trusted",
+    incidents=[Incident("Слил email клиента", IncidentSeverity.SEVERE)],
+)
+print(result.observed_score, result.observed_label)  # 63.0, 'Conditional'
+```
+
+### Genome Ledger — хэш-цепочка записей аудита
+
+```python
+from agenomics import GenomeLedger
+
+ledger = GenomeLedger()
+entry = ledger.record(genome, TrustScorer().score(genome))
+print(ledger.verify_integrity())  # True
+```
+
+### Genome Matchmaker — подбор оптимальной команды
+
+```python
+from agenomics import GenomeMatchmaker
+
+match = GenomeMatchmaker().best_team(candidates=[alice, bob, carol], roles=["reviewer", "executor"])
+print(match.assignment, match.team_result.average_score)
+```
+
+### Chain Risk Aggregator — риск последовательного пайплайна
+
+```python
+from agenomics import ChainRiskAggregator
+
+result = ChainRiskAggregator().score_chain([extract_agent, transform_agent, load_agent])
+print(result.chain_reliability)  # произведение, не среднее — ниже, чем ожидалось бы
+```
+
+### Prompt-to-Genome Extractor — автоматическое извлечение генома из промпта
+
+Библиотека не делает сетевых вызовов сама — вы передаёте функцию вызова
+своей LLM (Claude/GPT/любой другой):
+
+```python
+from agenomics import PromptToGenomeExtractor
+
+def call_my_llm(prompt: str) -> str:
+    return my_llm_client.complete(prompt)  # ваша интеграция
+
+extractor = PromptToGenomeExtractor(llm_call=call_my_llm)
+genome = extractor.extract(agent_id="support-bot", system_prompt="...")
+```
+
+### Reports — готовые Markdown-отчёты
+
+```python
+from agenomics import trust_report, compatibility_report
+
+print(trust_report(result, agent_id="support-bot"))
+```
+
+Подробности и ограничения каждого модуля — в [`docs/METHODOLOGY.md`](docs/METHODOLOGY.md).
+
 ## Структура репозитория
 
 ```
 agenomics/
-├── agenomics/              # ядро: AgentGenome, TrustScorer, CompatibilityScorer, api.py
+├── agenomics/
+│   ├── trust_score.py       # AgentGenome, TrustScorer
+│   ├── compatibility.py     # CompatibilityScorer
+│   ├── drift.py              # Drift Monitor
+│   ├── feedback.py           # Incident Feedback Loop
+│   ├── ledger.py              # Genome Ledger
+│   ├── matchmaker.py           # Genome Matchmaker
+│   ├── chain.py                 # Chain Risk Aggregator
+│   ├── extractor.py              # Prompt-to-Genome Extractor
+│   ├── reports.py                 # Markdown-отчёты
+│   └── api.py                      # веб-API (FastAPI)
 ├── prompts/                 # системные промпты (Trust Auditor и др.)
 ├── docs/                     # методология, whitepaper
-├── tests/                     # тесты (27+, включая валидацию и v0.3-улучшения)
+├── tests/                     # тесты (47+)
 ├── .github/workflows/          # CI — тесты запускаются на каждый push/PR
 ├── amvera.yml                   # конфиг деплоя веб-API на Amvera
 ├── requirements.txt               # зависимости для ЗАПУСКА (тесты, FastAPI/uvicorn)
@@ -202,9 +295,16 @@ Python. **`requirements.txt`** нужен для *запуска этого ре
 - [x] v0.3 — атрибуция с бэклинком в промпте, коде и API
 - [x] v0.3 — валидация диапазонов входных данных
 - [x] v0.3 — CI (GitHub Actions), CHANGELOG.md, CONTRIBUTING.md
-- [ ] v0.4 — веб-калькулятор на prizolov.ru
-- [ ] v0.4 — публичный реестр верификации (Genome Ledger)
-- [ ] v0.4 — обратная связь с реальными инцидентами (не только декларативная оценка)
+- [x] v0.4 — Drift Monitor (тренд Trust Score во времени)
+- [x] v0.4 — Incident Feedback Loop (Observed Score на основе реальных инцидентов)
+- [x] v0.4 — Genome Ledger (хэш-цепочка записей аудита)
+- [x] v0.4 — Genome Matchmaker (подбор оптимальной команды)
+- [x] v0.4 — Chain Risk Aggregator (риск последовательного пайплайна агентов)
+- [x] v0.4 — Prompt-to-Genome Extractor (с pluggable LLM-клиентом)
+- [x] v0.4 — Reports (`.to_report()` в Markdown)
+- [ ] v0.5 — веб-калькулятор на prizolov.ru
+- [ ] v0.5 — Genome Ledger как публичный сервис (сейчас — только локальный in-memory прототип)
+- [ ] v0.5 — персистентность Drift Monitor (сейчас состояние живёт только в памяти процесса)
 
 Полная история изменений — в [`CHANGELOG.md`](CHANGELOG.md).
 
