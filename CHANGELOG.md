@@ -4,6 +4,18 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/),
 версионирование — [Semantic Versioning](https://semver.org/) (0.x — API нестабилен).
 
+## [0.4.0] — 2026-09-03
+
+### Добавлено
+- **Drift Monitor** (`agenomics/drift.py`) — отслеживает историю Trust Score агента во времени, определяет тренд (improving/stable/degrading) и подаёт алерт при деградации
+- **Incident Feedback Loop** (`agenomics/feedback.py`) — пересчитывает декларативный Trust Score в "наблюдаемый" (Observed Score) с учётом реальных подтверждённых инцидентов (minor/moderate/severe)
+- **Genome Ledger** (`agenomics/ledger.py`) — append-only реестр записей аудита с хэш-цепочкой для базовой целостности (локальный прототип, не блокчейн)
+- **Genome Matchmaker** (`agenomics/matchmaker.py`) — подбирает оптимальное назначение ролей для команды агентов по максимальному Compatibility Score (полный перебор, до 8 кандидатов)
+- **Chain Risk Aggregator** (`agenomics/chain.py`) — считает надёжность последовательного пайплайна агентов как произведение вероятностей, а не среднее (в отличие от Compatibility Score для параллельной команды)
+- **Prompt-to-Genome Extractor** (`agenomics/extractor.py`) — автоматическое извлечение `AgentGenome` из системного промпта агента через pluggable LLM-клиент (библиотека не делает сетевых вызовов сама)
+- **Reports** (`agenomics/reports.py`) — `trust_report()` и `compatibility_report()`, готовые Markdown-отчёты вместо сырых dataclass
+- 20 новых тестов (`tests/test_v04_modules.py`), итого 47/47 тестов проходят
+
 ## [0.3.0] — 2026-09-02
 
 ### Добавлено
