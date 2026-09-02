@@ -3,7 +3,7 @@ test_trust_score.py — тесты TrustScorer методологии Agenomics.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.2.0
+Версия: 0.4.1
 """
 
 from agenomics import AgentGenome, TrustScorer, Autonomy, ImpactTier
@@ -71,3 +71,27 @@ def test_trusted_agent_with_ledger_and_advisory():
     result = TrustScorer().score(genome)
     assert result.label == "Trusted"
     assert result.capped_reason is None
+
+
+def test_how_to_guide_matches_weak_axes():
+    """how_to должен содержать практическую подсказку ровно для тех осей,
+    что попали в recommendations — не больше и не меньше."""
+    genome = AgentGenome(
+        id="needs-help", domain="support", autonomy=Autonomy.AUTONOMOUS,
+        transparency=85, bias_control=72, data_safety=90,
+        drift_rate=0.35, has_ledger=False,
+    )
+    result = TrustScorer().score(genome)
+    assert "accountability" in result.how_to
+    assert len(result.how_to["accountability"]) > 20  # содержательный текст, не заглушка
+    # Сильные оси (>= 80) не должны попадать в how_to
+    assert "data_safety" not in result.how_to
+
+
+def test_how_to_empty_for_fully_trusted_agent():
+    genome = AgentGenome(
+        id="excellent", domain="content", autonomy=Autonomy.ADVISORY,
+        transparency=95, bias_control=95, data_safety=95, drift_rate=0.02, has_ledger=True,
+    )
+    result = TrustScorer().score(genome)
+    assert result.how_to == {}
