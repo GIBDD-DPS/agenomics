@@ -1,6 +1,10 @@
 """
 api.py — минимальный веб-API методологии Agenomics.
 
+Автор: Dm.Andreyanov
+Проект: Prizolov Lab
+Версия: 0.1.0
+
 Оборачивает уже протестированный TrustScorer (см. trust_score.py и
 tests/test_trust_score.py) в HTTP-эндпоинт. Используется amvera.yml
 для деплоя (см. run.command: uvicorn agenomics.api:app ...).
