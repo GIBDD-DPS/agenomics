@@ -3,7 +3,7 @@ reports.py — форматированные Markdown-отчёты методо
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.4.0
+Версия: 0.4.1
 
 Оборачивает TrustResult/TeamCompatibilityResult в готовый к показу
 клиенту Markdown-отчёт вместо сырого dataclass.
@@ -33,6 +33,11 @@ def trust_report(result: TrustResult, agent_id: str = "agent") -> str:
         lines += ["", "### Рекомендации"]
         for i, rec in enumerate(result.recommendations, 1):
             lines.append(f"{i}. {rec}")
+            # Ищем ось, к которой относится рекомендация, чтобы подставить how_to
+            for axis, how_to_text in result.how_to.items():
+                if axis in rec:
+                    lines.append(f"   _Как сделать:_ {how_to_text}")
+                    break
 
     lines += ["", f"_{result.attribution}_"]
     return "\n".join(lines)
