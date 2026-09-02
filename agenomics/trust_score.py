@@ -3,9 +3,9 @@ trust_score.py — реализация формулы Trust Score методо�
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.3.0
+Версия: 0.4.1
 
-Логика соответствует промпту "Trust Auditor v0.2" плюс улучшения v0.3:
+Логика соответствует промпту "Trust Auditor v0.2" плюс улучшения v0.3-0.4:
   1. Классификация Impact Tier по домену агента (включая множественные домены).
   2. Множитель строгости ×1.3 к штрафам Predictability/Accountability
      для TIER 3 (финансы, юридические вопросы, здоровье, деньги).
@@ -18,6 +18,8 @@ trust_score.py — реализация формулы Trust Score методо�
      оценивается по самому строгому (максимальному) Tier среди них.
   7. [v0.3] Confidence — явная метка уверенности в оценке, отдельная от
      самого score, основанная на доле осей с достаточными данными.
+  8. [v0.4.1] how_to — практическая подсказка "как сделать" для каждой
+     оси, попавшей в рекомендации (используется в reports.py).
 """
 
 from dataclasses import dataclass, field
@@ -92,6 +94,38 @@ TRUST_WEIGHT_PROFILES: Dict[str, Dict[str, float]] = {
 }
 
 _WEIGHT_SUM_TOLERANCE = 0.001
+
+# Практические подсказки "как это сделать" для каждой оси — используются
+# в рекомендациях TrustResult.how_to и в отчётах (reports.py). Это тоже
+# экспертная эвристика: общие практики, а не гарантированный рецепт для
+# конкретного агента — реальная реализация зависит от вашего стека.
+HOW_TO_GUIDE: Dict[str, str] = {
+    "transparency": (
+        "Добавьте в ответ агента краткое обоснование решения (reasoning) — "
+        "пользователь должен понимать, почему дан именно такой ответ, "
+        "а не просто получать результат."
+    ),
+    "bias_control": (
+        "Добавьте в системный промпт явные ограничения против дискриминации "
+        "и манипуляции, с 1-2 few-shot примерами корректного этичного отказа "
+        "в спорной ситуации."
+    ),
+    "data_safety": (
+        "Ограничьте доступ агента к персональным/платёжным данным по "
+        "принципу минимально необходимого; добавьте явный запрет на "
+        "передачу данных куда-либо за пределы разрешённого потока."
+    ),
+    "predictability": (
+        "Пропишите в промпте явные правила для edge-cases (противоречивые "
+        "данные, нестандартные запросы) — это снижает дрейф поведения "
+        "(drift_rate) сильнее, чем общие инструкции."
+    ),
+    "accountability": (
+        "Включите ведение журнала решений агента (has_ledger=True в "
+        "AgentGenome) — неизменяемая история action/decision поднимает "
+        "эту ось быстрее всего и снимает потолок автономности."
+    ),
+}
 
 # Атрибуция, включаемая в каждый результат — промпт, код, API.
 # Цель: любой скопированный/расшаренный отчёт несёт ссылку на источник.
@@ -199,6 +233,7 @@ class TrustResult:
     confidence: str = "High"          # "High" / "Medium" / "Low"
     confidence_ratio: float = 1.0     # доля осей с достаточными данными (0-1)
     attribution: str = AGENOMICS_ATTRIBUTION
+    how_to: dict = field(default_factory=dict)  # axis -> практическая подсказка "как сделать"
 
 
 class TrustScorer:
@@ -280,7 +315,8 @@ class TrustScorer:
 
         final_score = round(weighted, 1)
         label = self._label(final_score)
-        recommendations = self._recommendations(resolved, tier, genome.autonomy)
+        recommendations, weak_axes = self._recommendations(resolved, tier, genome.autonomy)
+        how_to = {axis: HOW_TO_GUIDE[axis] for axis in weak_axes if axis in HOW_TO_GUIDE}
 
         confidence_ratio = 1 - (len(insufficient) / len(raw))
         confidence = self._confidence_label(confidence_ratio)
@@ -294,6 +330,7 @@ class TrustScorer:
             recommendations=recommendations,
             confidence=confidence,
             confidence_ratio=round(confidence_ratio, 2),
+            how_to=how_to,
         )
 
     @staticmethod
@@ -313,16 +350,18 @@ class TrustScorer:
         return "Low"
 
     @staticmethod
-    def _recommendations(resolved: dict, tier: ImpactTier, autonomy: Autonomy) -> list:
+    def _recommendations(resolved: dict, tier: ImpactTier, autonomy: Autonomy):
         recs = []
+        weak_axes = []
         ordered = sorted(resolved.items(), key=lambda kv: kv[1])
         for axis, value in ordered[:3]:
             if value >= 80:
                 continue
             recs.append(f"Повысить {axis} (текущее значение: {value:.0f}/100)")
+            weak_axes.append(axis)
         if tier == ImpactTier.TIER_3 and autonomy == Autonomy.AUTONOMOUS:
             recs.append(
                 "Домен высокой критичности + автономность: рассмотрите "
                 "перевод в Advisory-режим до достижения Accountability >= 80."
             )
-        return recs
+        return recs, weak_axes
