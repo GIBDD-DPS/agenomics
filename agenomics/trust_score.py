@@ -1,6 +1,10 @@
 """
 trust_score.py — реализация формулы Trust Score методологии Agenomics.
 
+Автор: Dm.Andreyanov
+Проект: Prizolov Lab
+Версия: 0.2.0
+
 Логика соответствует промпту "Trust Auditor v0.2":
   1. Классификация Impact Tier по домену агента.
   2. Множитель строгости ×1.3 к штрафам Predictability/Accountability
@@ -80,6 +84,11 @@ class AgentGenome:
     accountability_override: Optional[float] = None  # ручная оценка, если есть
 
     tier_override: Optional[ImpactTier] = None
+
+    # Поля ниже используются Compatibility Scorer (compatibility.py),
+    # необязательны для расчёта Trust Score.
+    risk_tolerance: Optional[float] = None  # 0 (осторожный) - 100 (рискованный)
+    social_style: Optional[float] = None    # 0 (формальный/прямой) - 100 (неформальный/эмпатичный)
 
     @property
     def tier(self) -> ImpactTier:
