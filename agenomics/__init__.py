@@ -6,12 +6,12 @@ Agenomics — Genetics for AI Agents.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.4.0
+Версия: 0.4.1
 """
 
 from .trust_score import (
     AgentGenome, TrustScorer, TrustResult, ImpactTier, Autonomy,
-    DEFAULT_TRUST_WEIGHTS, TRUST_WEIGHT_PROFILES, AGENOMICS_ATTRIBUTION,
+    DEFAULT_TRUST_WEIGHTS, TRUST_WEIGHT_PROFILES, AGENOMICS_ATTRIBUTION, HOW_TO_GUIDE,
 )
 from .compatibility import (
     CompatibilityScorer, PairCompatibilityResult, TeamCompatibilityResult,
@@ -27,7 +27,7 @@ from .reports import trust_report, compatibility_report
 
 __all__ = [
     "AgentGenome", "TrustScorer", "TrustResult", "ImpactTier", "Autonomy",
-    "DEFAULT_TRUST_WEIGHTS", "TRUST_WEIGHT_PROFILES", "AGENOMICS_ATTRIBUTION",
+    "DEFAULT_TRUST_WEIGHTS", "TRUST_WEIGHT_PROFILES", "AGENOMICS_ATTRIBUTION", "HOW_TO_GUIDE",
     "CompatibilityScorer", "PairCompatibilityResult", "TeamCompatibilityResult",
     "DEFAULT_COMPAT_WEIGHTS", "COMPAT_WEIGHT_PROFILES",
     "DriftMonitor", "DriftReport", "ScoreSnapshot",
@@ -39,4 +39,4 @@ __all__ = [
     "trust_report", "compatibility_report",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
