@@ -4,10 +4,10 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Status](https://img.shields.io/badge/status-v0.1--draft-orange.svg)](#)
+[![Status](https://img.shields.io/badge/status-v0.2--draft-orange.svg)](#)
 
 > **Автор**: Dm.Andreyanov
-> **Версия**: 0.1.0 (draft)
+> **Версия**: 0.2.0
 > **Связанные проекты**: [Prizolov Lab](https://prizolov.ru) / [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
 
 ---
@@ -63,6 +63,44 @@ print(result.breakdown)      # разбивка по 5 осям
 print(result.capped_reason)  # если применён потолок автономности
 ```
 
+### Compatibility Scorer — совместимость команды агентов
+
+```python
+from agenomics import AgentGenome, CompatibilityScorer
+
+sales_agent = AgentGenome(
+    id="recommendation-agent",
+    bias_control=80, risk_tolerance=50, social_style=15, has_ledger=False,
+)
+support_agent = AgentGenome(
+    id="support-agent",
+    bias_control=82, risk_tolerance=50, social_style=90, has_ledger=True,
+)
+
+result = CompatibilityScorer().score_pair(sales_agent, support_agent)
+print(result.score)           # 0-100
+print(result.breakdown)       # разбивка по 4 осям: ethics, risk_tolerance, social_style, accountability
+print(result.capped_reason)   # если сработал потолок из-за этического конфликта
+
+# Для команды из 3+ агентов (добавьте other_agent, third_agent и т.д.):
+team_result = CompatibilityScorer().score_team([sales_agent, support_agent])
+print(team_result.average_score)
+print(team_result.weakest_pair)  # самое слабое звено команды
+```
+
+### Веб-API
+
+```bash
+curl -X POST https://<ваш-адрес-на-amvera>/compatibility \
+  -H "Content-Type: application/json" \
+  -d '{
+        "agents": [
+          {"id": "sales", "bias_control": 80, "risk_tolerance": 50, "social_style": 15},
+          {"id": "support", "bias_control": 82, "risk_tolerance": 50, "social_style": 90}
+        ]
+      }'
+```
+
 ## Структура репозитория
 
 ```
@@ -82,10 +120,12 @@ agenomics/
 ## Roadmap
 
 - [x] v0.1 — формула Trust Score, Tier-множитель, потолок автономности
-- [ ] v0.1 — промпт Trust Auditor (готов, см. `prompts/`)
-- [ ] v0.2 — Compatibility Scorer между несколькими агентами
-- [ ] v0.2 — веб-калькулятор (по аналогии с инструментами Prizolov Lab)
+- [x] v0.1 — промпт Trust Auditor (см. `prompts/`)
+- [x] v0.2 — Compatibility Scorer между несколькими агентами
+- [x] v0.2 — веб-API (`/score`, `/compatibility`) на Amvera
+- [ ] v0.3 — веб-калькулятор на prizolov.ru (по аналогии с инструментами Prizolov Lab)
 - [ ] v0.3 — публичный реестр верификации (Genome Ledger)
+- [ ] v0.3 — публикация пакета на PyPI
 
 ## Лицензия
 
