@@ -93,6 +93,17 @@ TRUST_WEIGHT_PROFILES: Dict[str, Dict[str, float]] = {
 
 _WEIGHT_SUM_TOLERANCE = 0.001
 
+# Атрибуция, включаемая в каждый результат — промпт, код, API.
+# Цель: любой скопированный/расшаренный отчёт несёт ссылку на источник.
+AGENOMICS_ATTRIBUTION = "Powered by Agenomics (Trust Score methodology) — prizolov.ru · by Dm.Andreyanov, Prizolov Lab"
+
+
+def _validate_range(name: str, value: Optional[float], lo: float = 0.0, hi: float = 100.0) -> None:
+    """Проверяет, что значение оси попадает в допустимый диапазон.
+    None пропускается — это законное состояние "нет данных"."""
+    if value is not None and not (lo <= value <= hi):
+        raise ValueError(f"{name} должен быть в диапазоне [{lo}, {hi}], получено {value}")
+
 
 def infer_tier(domain: Optional[str]) -> ImpactTier:
     """Определяет Impact Tier по названию одного домена агента."""
@@ -141,6 +152,16 @@ class AgentGenome:
     risk_tolerance: Optional[float] = None  # 0 (осторожный) - 100 (рискованный)
     social_style: Optional[float] = None    # 0 (формальный/прямой) - 100 (неформальный/эмпатичный)
 
+    def __post_init__(self):
+        """Валидация диапазонов — библиотека не должна молча принимать
+        мусорные значения (bias_control=150, drift_rate=-0.3 и т.п.),
+        даже при прямом использовании в обход API/Pydantic."""
+        for axis_name in ("transparency", "bias_control", "data_safety", "risk_tolerance", "social_style"):
+            _validate_range(axis_name, getattr(self, axis_name))
+        _validate_range("accountability_override", self.accountability_override)
+        if self.drift_rate is not None and not (0.0 <= self.drift_rate <= 1.0):
+            raise ValueError(f"drift_rate должен быть в диапазоне [0.0, 1.0], получено {self.drift_rate}")
+
     @property
     def tier(self) -> ImpactTier:
         if self.tier_override:
@@ -177,6 +198,7 @@ class TrustResult:
     # но должны различаться по `confidence`.
     confidence: str = "High"          # "High" / "Medium" / "Low"
     confidence_ratio: float = 1.0     # доля осей с достаточными данными (0-1)
+    attribution: str = AGENOMICS_ATTRIBUTION
 
 
 class TrustScorer:
