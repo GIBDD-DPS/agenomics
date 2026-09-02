@@ -3,7 +3,7 @@ api.py — минимальный веб-API методологии Agenomics.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.2.0
+Версия: 0.3.0
 
 Оборачивает уже протестированные TrustScorer и CompatibilityScorer
 (см. trust_score.py, compatibility.py и соответствующие тесты) в
@@ -13,27 +13,28 @@ HTTP-эндпоинты. Используется amvera.yml для деплоя
 Локальный запуск для проверки:
     uvicorn agenomics.api:app --reload --port 8000
 
-Пример запроса /score:
+Пример запроса /score (с профилем весов и множественным domain):
     curl -X POST http://localhost:8000/score \
       -H "Content-Type: application/json" \
       -d '{
             "id": "cashflow-predictor",
-            "domain": "finance",
+            "domains": ["support", "finance"],
             "autonomy": "autonomous",
             "transparency": 75,
             "bias_control": 80,
             "data_safety": 85,
             "drift_rate": 0.1,
-            "has_ledger": false
+            "has_ledger": false,
+            "weight_profile": "finance"
           }'
 
-Пример запроса /compatibility (2+ агента):
+Пример запроса /compatibility (2+ агента, с ролями):
     curl -X POST http://localhost:8000/compatibility \
       -H "Content-Type: application/json" \
       -d '{
             "agents": [
-              {"id": "sales", "bias_control": 80, "risk_tolerance": 50, "social_style": 15},
-              {"id": "support", "bias_control": 82, "risk_tolerance": 50, "social_style": 90}
+              {"id": "reviewer", "role": "reviewer", "bias_control": 85, "risk_tolerance": 10, "social_style": 50},
+              {"id": "executor", "role": "executor", "bias_control": 85, "risk_tolerance": 90, "social_style": 50}
             ]
           }'
 """
@@ -52,11 +53,11 @@ app = FastAPI(
         "Genetics for AI Agents — Trust Score и Compatibility Score для "
         "автономных ИИ-агентов. Методология: см. docs/METHODOLOGY.md в репозитории."
     ),
-    version="0.2.0",
+    version="0.3.0",
 )
 
-_scorer = TrustScorer()
-_compat_scorer = CompatibilityScorer()
+_default_scorer = TrustScorer()
+_default_compat_scorer = CompatibilityScorer()
 
 
 class GenomeRequest(BaseModel):
@@ -64,8 +65,14 @@ class GenomeRequest(BaseModel):
     domain: Optional[str] = Field(
         None, description="Домен агента, напр. 'finance', 'support', 'content'"
     )
+    domains: Optional[List[str]] = Field(
+        None, description="Список доменов, если агент затрагивает несколько — Tier берётся максимальный"
+    )
     autonomy: str = Field(
         "advisory", description="'advisory' (только советует) или 'autonomous' (действует сам)"
+    )
+    role: Optional[str] = Field(
+        None, description="Роль в команде для Compatibility Score: 'standard', 'executor', 'reviewer'"
     )
     transparency: Optional[float] = Field(None, ge=0, le=100)
     bias_control: Optional[float] = Field(None, ge=0, le=100)
@@ -86,6 +93,9 @@ class GenomeRequest(BaseModel):
     social_style: Optional[float] = Field(
         None, ge=0, le=100, description="Для Compatibility Score: 0 (формальный) - 100 (неформальный/эмпатичный)"
     )
+    weight_profile: str = Field(
+        "default", description="Профиль весов Trust Score: 'default', 'healthcare', 'finance', 'content'"
+    )
 
 
 class TrustScoreResponse(BaseModel):
@@ -98,11 +108,17 @@ class TrustScoreResponse(BaseModel):
     insufficient_axes: List[str]
     capped_reason: Optional[str] = None
     recommendations: List[str]
+    confidence: str
+    confidence_ratio: float
+    attribution: str
 
 
 class CompatibilityRequest(BaseModel):
     agents: List[GenomeRequest] = Field(
         ..., min_length=2, description="Список из 2+ агентов для оценки совместимости"
+    )
+    weight_profile: str = Field(
+        "default", description="Профиль весов Compatibility Score: 'default', 'safety_critical'"
     )
 
 
@@ -113,6 +129,10 @@ class PairScoreResponse(BaseModel):
     breakdown: Dict[str, float]
     insufficient_axes: List[str]
     capped_reason: Optional[str] = None
+    confidence: str
+    confidence_ratio: float
+    complementary_roles: bool
+    attribution: str
 
 
 class TeamCompatibilityResponse(BaseModel):
@@ -136,7 +156,9 @@ def _to_genome(payload: GenomeRequest) -> AgentGenome:
     return AgentGenome(
         id=payload.id,
         domain=payload.domain,
+        domains=payload.domains,
         autonomy=autonomy,
+        role=payload.role,
         transparency=payload.transparency,
         bias_control=payload.bias_control,
         data_safety=payload.data_safety,
@@ -151,7 +173,7 @@ def _to_genome(payload: GenomeRequest) -> AgentGenome:
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "service": "agenomics-api", "version": "0.2.0"}
+    return {"status": "ok", "service": "agenomics-api", "version": "0.3.0"}
 
 
 @app.get("/")
@@ -171,7 +193,12 @@ def root() -> dict:
 @app.post("/score", response_model=TrustScoreResponse)
 def score_agent(payload: GenomeRequest) -> TrustScoreResponse:
     genome = _to_genome(payload)
-    result = _scorer.score(genome)
+    try:
+        scorer = TrustScorer(weight_profile=payload.weight_profile) if payload.weight_profile != "default" else _default_scorer
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    result = scorer.score(genome)
 
     return TrustScoreResponse(
         id=payload.id,
@@ -183,13 +210,25 @@ def score_agent(payload: GenomeRequest) -> TrustScoreResponse:
         insufficient_axes=result.insufficient_axes,
         capped_reason=result.capped_reason,
         recommendations=result.recommendations,
+        confidence=result.confidence,
+        confidence_ratio=result.confidence_ratio,
+        attribution=result.attribution,
     )
 
 
 @app.post("/compatibility", response_model=TeamCompatibilityResponse)
 def score_compatibility(payload: CompatibilityRequest) -> TeamCompatibilityResponse:
     genomes = [_to_genome(a) for a in payload.agents]
-    result = _compat_scorer.score_team(genomes)
+    try:
+        scorer = (
+            CompatibilityScorer(weight_profile=payload.weight_profile)
+            if payload.weight_profile != "default"
+            else _default_compat_scorer
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    result = scorer.score_team(genomes)
 
     def _to_pair_response(p) -> PairScoreResponse:
         return PairScoreResponse(
@@ -199,6 +238,10 @@ def score_compatibility(payload: CompatibilityRequest) -> TeamCompatibilityRespo
             breakdown=p.breakdown,
             insufficient_axes=p.insufficient_axes,
             capped_reason=p.capped_reason,
+            confidence=p.confidence,
+            confidence_ratio=p.confidence_ratio,
+            complementary_roles=p.complementary_roles,
+            attribution=p.attribution,
         )
 
     return TeamCompatibilityResponse(
