@@ -150,3 +150,24 @@ def test_compatibility_confidence_reflects_missing_data():
     result = CompatibilityScorer().score_pair(a, b)
     assert result.confidence in ("Low", "Medium")
     assert result.confidence_ratio < 1.0
+
+
+# --- 5. Валидация диапазонов (найдено во внешнем аудите репозитория) ------
+
+def test_out_of_range_bias_control_raises():
+    _assert_raises(ValueError, lambda: AgentGenome(id="bad", bias_control=150))
+
+
+def test_negative_axis_value_raises():
+    _assert_raises(ValueError, lambda: AgentGenome(id="bad", transparency=-10))
+
+
+def test_drift_rate_out_of_0_1_range_raises():
+    _assert_raises(ValueError, lambda: AgentGenome(id="bad", drift_rate=-0.3))
+    _assert_raises(ValueError, lambda: AgentGenome(id="bad2", drift_rate=1.5))
+
+
+def test_valid_boundary_values_do_not_raise():
+    """0 и 100 — законные границы диапазона, не должны выбрасывать исключение."""
+    AgentGenome(id="edge-low", bias_control=0, transparency=0, drift_rate=0.0)
+    AgentGenome(id="edge-high", bias_control=100, transparency=100, drift_rate=1.0)
