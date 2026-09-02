@@ -1,3 +1,11 @@
+"""
+test_trust_score.py — тесты TrustScorer методологии Agenomics.
+
+Автор: Dm.Andreyanov
+Проект: Prizolov Lab
+Версия: 0.2.0
+"""
+
 from agenomics import AgentGenome, TrustScorer, Autonomy, ImpactTier
 
 
