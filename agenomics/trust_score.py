@@ -3,7 +3,7 @@ trust_score.py — реализация формулы Trust Score методо�
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.4.1
+Версия: 0.4.3
 
 Логика соответствует промпту "Trust Auditor v0.2" плюс улучшения v0.3-0.4:
   1. Классификация Impact Tier по домену агента (включая множественные домены).
@@ -20,6 +20,10 @@ trust_score.py — реализация формулы Trust Score методо�
      самого score, основанная на доле осей с достаточными данными.
   8. [v0.4.1] how_to — практическая подсказка "как сделать" для каждой
      оси, попавшей в рекомендации (используется в reports.py).
+  9. [v0.4.3] language — параметр TrustScorer(language="ru"|"en").
+     Определяет язык текста recommendations, capped_reason и how_to.
+     Поддерживаются "ru" (по умолчанию) и "en"; список расширяем —
+     см. HOW_TO_GUIDE_TRANSLATIONS и *_TEMPLATES ниже.
 """
 
 from dataclasses import dataclass, field
@@ -126,6 +130,69 @@ HOW_TO_GUIDE: Dict[str, str] = {
         "эту ось быстрее всего и снимает потолок автономности."
     ),
 }
+
+# [v0.4.3] Английский перевод HOW_TO_GUIDE. HOW_TO_GUIDE (выше) сохранён
+# как есть для обратной совместимости (semver 0.x, но лишний breaking
+# change без нужды — плохая практика) — это дефолт для language="ru".
+_HOW_TO_GUIDE_EN: Dict[str, str] = {
+    "transparency": (
+        "Add a brief reasoning explanation to the agent's response — the "
+        "user should understand why a particular answer was given, not "
+        "just receive the result."
+    ),
+    "bias_control": (
+        "Add explicit anti-discrimination and anti-manipulation constraints "
+        "to the system prompt, with 1-2 few-shot examples of a correct, "
+        "ethical refusal in a borderline situation."
+    ),
+    "data_safety": (
+        "Restrict the agent's access to personal/payment data on a "
+        "need-to-know basis; add an explicit prohibition on sharing data "
+        "outside the permitted flow."
+    ),
+    "predictability": (
+        "Add explicit rules for edge cases (conflicting data, non-standard "
+        "requests) to the prompt — this reduces behavioral drift "
+        "(drift_rate) more effectively than general instructions."
+    ),
+    "accountability": (
+        "Enable a decision log for the agent (has_ledger=True in "
+        "AgentGenome) — an immutable action/decision history raises this "
+        "axis the fastest and lifts the autonomy ceiling."
+    ),
+}
+
+HOW_TO_GUIDE_TRANSLATIONS: Dict[str, Dict[str, str]] = {
+    "ru": HOW_TO_GUIDE,
+    "en": _HOW_TO_GUIDE_EN,
+}
+
+# [v0.4.3] Шаблоны текстов рекомендаций/потолка по языкам.
+_RECOMMENDATION_TEMPLATE = {
+    "ru": "Повысить {axis} (текущее значение: {value:.0f}/100)",
+    "en": "Improve {axis} (current value: {value:.0f}/100)",
+}
+_TIER3_AUTONOMY_RECOMMENDATION = {
+    "ru": (
+        "Домен высокой критичности + автономность: рассмотрите "
+        "перевод в Advisory-режим до достижения Accountability >= 80."
+    ),
+    "en": (
+        "High-criticality domain + autonomy: consider switching to "
+        "Advisory mode until Accountability reaches >= 80."
+    ),
+}
+_CAPPED_REASON_TEMPLATE = {
+    "ru": (
+        "Autonomous-агент с Accountability < {threshold} не может получить "
+        "Trust Score выше {cap} (жёсткий потолок, не среднее арифметическое)."
+    ),
+    "en": (
+        "An Autonomous agent with Accountability < {threshold} cannot "
+        "receive a Trust Score above {cap} (a hard ceiling, not an average)."
+    ),
+}
+SUPPORTED_LANGUAGES = tuple(HOW_TO_GUIDE_TRANSLATIONS.keys())
 
 # Атрибуция, включаемая в каждый результат — промпт, код, API.
 # Цель: любой скопированный/расшаренный отчёт несёт ссылку на источник.
@@ -239,13 +306,28 @@ class TrustResult:
 class TrustScorer:
     """Вычисляет Trust Score по методологии Agenomics."""
 
-    def __init__(self, weight_profile: str = "default", weights: Optional[Dict[str, float]] = None):
+    def __init__(
+        self,
+        weight_profile: str = "default",
+        weights: Optional[Dict[str, float]] = None,
+        language: str = "ru",
+    ):
         """
         weight_profile: имя пресета из TRUST_WEIGHT_PROFILES
             ("default", "healthcare", "finance", "content").
         weights: явный словарь весов — переопределяет weight_profile,
             если передан. Должен суммироваться в 1.0.
+        language: язык текстов recommendations/capped_reason/how_to —
+            "ru" (по умолчанию) или "en". Список поддерживаемых языков:
+            SUPPORTED_LANGUAGES.
         """
+        if language not in HOW_TO_GUIDE_TRANSLATIONS:
+            raise ValueError(
+                f"Неизвестный language '{language}'. "
+                f"Доступные: {list(HOW_TO_GUIDE_TRANSLATIONS.keys())}"
+            )
+        self._language = language
+
         if weights is not None:
             resolved = weights
         else:
@@ -306,17 +388,18 @@ class TrustScorer:
             and weighted > _AUTONOMY_TRUST_CAP
         ):
             weighted = _AUTONOMY_TRUST_CAP
-            capped_reason = (
-                f"Autonomous-агент с Accountability < "
-                f"{_AUTONOMY_ACCOUNTABILITY_THRESHOLD} не может получить "
-                f"Trust Score выше {_AUTONOMY_TRUST_CAP} (жёсткий потолок, "
-                f"не среднее арифметическое)."
+            capped_reason = _CAPPED_REASON_TEMPLATE[self._language].format(
+                threshold=_AUTONOMY_ACCOUNTABILITY_THRESHOLD,
+                cap=_AUTONOMY_TRUST_CAP,
             )
 
         final_score = round(weighted, 1)
         label = self._label(final_score)
-        recommendations, weak_axes = self._recommendations(resolved, tier, genome.autonomy)
-        how_to = {axis: HOW_TO_GUIDE[axis] for axis in weak_axes if axis in HOW_TO_GUIDE}
+        recommendations, weak_axes = self._recommendations(
+            resolved, tier, genome.autonomy, self._language
+        )
+        how_to_source = HOW_TO_GUIDE_TRANSLATIONS[self._language]
+        how_to = {axis: how_to_source[axis] for axis in weak_axes if axis in how_to_source}
 
         confidence_ratio = 1 - (len(insufficient) / len(raw))
         confidence = self._confidence_label(confidence_ratio)
@@ -350,18 +433,15 @@ class TrustScorer:
         return "Low"
 
     @staticmethod
-    def _recommendations(resolved: dict, tier: ImpactTier, autonomy: Autonomy):
+    def _recommendations(resolved: dict, tier: ImpactTier, autonomy: Autonomy, language: str = "ru"):
         recs = []
         weak_axes = []
         ordered = sorted(resolved.items(), key=lambda kv: kv[1])
         for axis, value in ordered[:3]:
             if value >= 80:
                 continue
-            recs.append(f"Повысить {axis} (текущее значение: {value:.0f}/100)")
+            recs.append(_RECOMMENDATION_TEMPLATE[language].format(axis=axis, value=value))
             weak_axes.append(axis)
         if tier == ImpactTier.TIER_3 and autonomy == Autonomy.AUTONOMOUS:
-            recs.append(
-                "Домен высокой критичности + автономность: рассмотрите "
-                "перевод в Advisory-режим до достижения Accountability >= 80."
-            )
+            recs.append(_TIER3_AUTONOMY_RECOMMENDATION[language])
         return recs, weak_axes
