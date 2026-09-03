@@ -3,7 +3,7 @@ compatibility.py — Compatibility Scorer методологии Agenomics.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.3.0
+Версия: 0.4.3
 
 Отвечает на вопрос: сработается ли команда из нескольких ИИ-агентов?
 Использует те же геномы (AgentGenome), что и TrustScorer, плюс два
@@ -26,16 +26,33 @@ compatibility.py — Compatibility Scorer методологии Agenomics.
      полная совместимость. Осторожный ревьюер при рискованном
      исполнителе — осознанный чек-баланс, а не признак конфликта.
   7. Confidence — явная уверенность в оценке, отдельно от score.
+
+Улучшения v0.4.3:
+  8. language — CompatibilityScorer(language="ru"|"en") для текста
+     capped_reason, по аналогии с TrustScorer.
 """
 
 from dataclasses import dataclass, field
 from itertools import combinations
 from typing import Dict, List, Optional, Tuple
 
-from .trust_score import AgentGenome, AGENOMICS_ATTRIBUTION
+from .trust_score import AgentGenome, AGENOMICS_ATTRIBUTION, SUPPORTED_LANGUAGES
 
 _ETHICS_CONFLICT_THRESHOLD = 40   # разница bias_control, после которой применяется потолок
 _ETHICS_CONFLICT_CAP = 50
+
+_CAPPED_REASON_TEMPLATE = {
+    "ru": (
+        "Этическое расхождение между агентами ({gap:.0f} пунктов "
+        "bias_control) превышает порог {threshold} — Compatibility Score "
+        "не может быть выше {cap}, независимо от совпадения по другим осям."
+    ),
+    "en": (
+        "Ethical divergence between agents ({gap:.0f} points of "
+        "bias_control) exceeds the threshold of {threshold} — Compatibility "
+        "Score cannot exceed {cap}, regardless of alignment on other axes."
+    ),
+}
 
 DEFAULT_COMPAT_WEIGHTS: Dict[str, float] = {
     "ethics": 0.35,
@@ -109,7 +126,18 @@ class TeamCompatibilityResult:
 class CompatibilityScorer:
     """Вычисляет совместимость пары или команды агентов."""
 
-    def __init__(self, weight_profile: str = "default", weights: Optional[Dict[str, float]] = None):
+    def __init__(
+        self,
+        weight_profile: str = "default",
+        weights: Optional[Dict[str, float]] = None,
+        language: str = "ru",
+    ):
+        if language not in SUPPORTED_LANGUAGES:
+            raise ValueError(
+                f"Неизвестный language '{language}'. Доступные: {list(SUPPORTED_LANGUAGES)}"
+            )
+        self._language = language
+
         if weights is not None:
             resolved = weights
         else:
@@ -166,11 +194,8 @@ class CompatibilityScorer:
         )
         if ethics_gap is not None and ethics_gap > _ETHICS_CONFLICT_THRESHOLD and weighted > _ETHICS_CONFLICT_CAP:
             weighted = _ETHICS_CONFLICT_CAP
-            capped_reason = (
-                f"Этическое расхождение между агентами ({ethics_gap:.0f} пунктов "
-                f"bias_control) превышает порог {_ETHICS_CONFLICT_THRESHOLD} — "
-                f"Compatibility Score не может быть выше {_ETHICS_CONFLICT_CAP}, "
-                f"независимо от совпадения по другим осям."
+            capped_reason = _CAPPED_REASON_TEMPLATE[self._language].format(
+                gap=ethics_gap, threshold=_ETHICS_CONFLICT_THRESHOLD, cap=_ETHICS_CONFLICT_CAP,
             )
 
         confidence_ratio = 1 - (len(insufficient) / len(breakdown))
