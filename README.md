@@ -4,11 +4,11 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Status](https://img.shields.io/badge/status-v0.4.0-orange.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-v0.4.3-orange.svg)](CHANGELOG.md)
 [![PyPI](https://img.shields.io/badge/PyPI-agenomics-blue.svg)](https://pypi.org/project/agenomics/)
 
 > **Автор**: Dm.Andreyanov
-> **Версия**: 0.4.0
+> **Версия**: 0.4.3
 > **Связанные проекты**: [Prizolov Lab](https://prizolov.ru) / [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
 >
 > ⚠️ Методология следует **semver 0.x** — до релиза `1.0.0` обратная
@@ -75,6 +75,18 @@ print(result.attribution)       # ссылка на методологию/ав�
 Значения `bias_control`, `transparency`, `data_safety` и т.д. должны быть
 в диапазоне `[0, 100]`, `drift_rate` — в `[0.0, 1.0]`. Значения вне
 диапазона вызывают `ValueError` уже на этапе создания `AgentGenome`.
+
+### Мультиязычность (v0.4.3)
+
+```python
+from agenomics import TrustScorer, trust_report
+
+result_en = TrustScorer(language="en").score(genome)  # recommendations/capped_reason на английском
+print(trust_report(result_en, agent_id="cashflow-predictor-v1", language="en"))
+```
+
+Поддерживаются `"ru"` (по умолчанию) и `"en"` — список в `SUPPORTED_LANGUAGES`.
+`trust_report_docx()` принимает тот же параметр.
 
 ### Настраиваемые профили весов (v0.3)
 
@@ -229,12 +241,26 @@ extractor = PromptToGenomeExtractor(llm_call=call_my_llm)
 genome = extractor.extract(agent_id="support-bot", system_prompt="...")
 ```
 
-### Reports — готовые Markdown-отчёты
+### Reports — готовые отчёты (Markdown и Word)
 
 ```python
 from agenomics import trust_report, compatibility_report
 
 print(trust_report(result, agent_id="support-bot"))
+```
+
+Для брендированного Word-документа (шапка Prizolov Lab, прогресс-бары по
+осям, карточки рекомендаций с «как сделать») — установите опциональную
+зависимость и используйте `trust_report_docx()`:
+
+```bash
+pip install agenomics[docx]
+```
+
+```python
+from agenomics import trust_report_docx
+
+trust_report_docx(result, agent_id="support-bot", output_path="report.docx")
 ```
 
 Подробности и ограничения каждого модуля — в [`docs/METHODOLOGY.md`](docs/METHODOLOGY.md).
@@ -302,9 +328,14 @@ Python. **`requirements.txt`** нужен для *запуска этого ре
 - [x] v0.4 — Chain Risk Aggregator (риск последовательного пайплайна агентов)
 - [x] v0.4 — Prompt-to-Genome Extractor (с pluggable LLM-клиентом)
 - [x] v0.4 — Reports (`.to_report()` в Markdown)
+- [x] v0.4.2 — how_to (практическая подсказка «как сделать» к каждой рекомендации)
+- [x] v0.4.2 — trust_report_docx() — брендированный Word-отчёт (опц. python-docx)
+- [x] v0.4.3 — мультиязычность (`language="ru"|"en"` в Scorer'ах и report-функциях)
+- [x] v0.4.3 — инструкция определения языка в промпте Trust Auditor (v0.4)
 - [ ] v0.5 — веб-калькулятор на prizolov.ru
 - [ ] v0.5 — Genome Ledger как публичный сервис (сейчас — только локальный in-memory прототип)
 - [ ] v0.5 — персистентность Drift Monitor (сейчас состояние живёт только в памяти процесса)
+- [ ] v0.5 — мультиязычность за пределами ru/en (требует новых словарей переводов вручную)
 
 Полная история изменений — в [`CHANGELOG.md`](CHANGELOG.md).
 
