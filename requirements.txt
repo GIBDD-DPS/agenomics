@@ -7,3 +7,7 @@ pytest>=7.0
 # Для веб-API (agenomics/api.py, деплой через amvera.yml):
 fastapi>=0.110
 uvicorn[standard]>=0.29
+
+# Для trust_report_docx() (agenomics/reports.py) — опционально для конечных
+# пользователей пакета, но нужно здесь для прогона полного набора тестов:
+python-docx>=1.0.0
