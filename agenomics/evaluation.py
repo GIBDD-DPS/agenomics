@@ -1,5 +1,5 @@
 """
-evaluation.py — Real-World Evaluation Layer (v0.6.0).
+evaluation.py — Real-World Evaluation Layer (v0.6.0, обновлено в v0.7.0).
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
@@ -15,6 +15,12 @@ RealWorldEvaluationLayer — эта единая точка. Она делает
 Incident Correlation принципиально ВОЗМОЖНЫМ, когда появятся реальные
 production-данные — до сих пор такой инфраструктуры не было вообще,
 только заглушка not_computable в benchmark/metrics.py.
+
+[v0.7.0] Добавлен record_raw_observation() — низкоуровневый метод записи
+по сырым score/label/confidence, без полноценного TrustResult. Нужен для
+воспроизведения наблюдений, загруженных из agenomics.evidence.EvidenceStore
+(персистентное хранилище — само по себе эта in-memory реализация
+по-прежнему не переживает перезапуск процесса).
 
 ВАЖНО: сама по себе эта инфраструктура не производит "валидацию" —
 она лишь умеет корректно посчитать корреляцию, КОГДА вы передадите ей
@@ -87,6 +93,31 @@ class RealWorldEvaluationLayer:
         self._drift = DriftMonitorV2()
         self._min_observations = min_observations
 
+    def record_raw_observation(
+        self,
+        agent_id: str,
+        score: float,
+        label: str,
+        confidence: str = "High",
+        incidents: Optional[List[Incident]] = None,
+        timestamp: Optional[datetime] = None,
+    ) -> Observation:
+        """
+        Низкоуровневая запись — принимает сырые score/label/confidence,
+        а не полноценный TrustResult. Нужна для двух случаев:
+          1. record_observation() ниже — обычный путь через TrustResult;
+          2. воспроизведение наблюдений из EvidenceStore (agenomics/evidence.py),
+             где TrustResult не хранится целиком — только его ключевые поля.
+        """
+        ts = timestamp or datetime.now(timezone.utc)
+        obs = Observation(
+            timestamp=ts, declared_score=score, declared_label=label,
+            incidents=list(incidents or []),
+        )
+        self._observations.setdefault(agent_id, []).append(obs)
+        self._drift.record(agent_id, score, confidence, ts)
+        return obs
+
     def record_observation(
         self,
         agent_id: str,
@@ -94,16 +125,10 @@ class RealWorldEvaluationLayer:
         incidents: Optional[List[Incident]] = None,
         timestamp: Optional[datetime] = None,
     ) -> Observation:
-        ts = timestamp or datetime.now(timezone.utc)
-        obs = Observation(
-            timestamp=ts,
-            declared_score=declared_result.score,
-            declared_label=declared_result.label,
-            incidents=list(incidents or []),
+        return self.record_raw_observation(
+            agent_id, declared_result.score, declared_result.label,
+            declared_result.confidence, incidents, timestamp,
         )
-        self._observations.setdefault(agent_id, []).append(obs)
-        self._drift.record(agent_id, declared_result.score, declared_result.confidence, ts)
-        return obs
 
     def observations(self, agent_id: str) -> List[Observation]:
         return list(self._observations.get(agent_id, []))
