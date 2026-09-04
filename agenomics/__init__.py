@@ -6,7 +6,7 @@ Agenomics — Genetics for AI Agents.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.5.0
+Версия: 0.6.0
 
 Формальная спецификация уровней конвейера (Genome → Genome Schema →
 Phenotype → Trust Model → Compatibility Model → Drift Model →
@@ -23,12 +23,13 @@ from .compatibility import (
     DEFAULT_COMPAT_WEIGHTS, COMPAT_WEIGHT_PROFILES,
 )
 from .phenotype import Phenotype, compute_phenotype, describe_genome_schema, GENOME_SCHEMA, FieldSpec
-from .drift import DriftMonitor, DriftReport, ScoreSnapshot
+from .drift import DriftMonitor, DriftReport, ScoreSnapshot, DriftMonitorV2, DriftReportV2
 from .feedback import IncidentFeedback, Incident, IncidentSeverity, ObservedScoreResult
 from .ledger import GenomeLedger, LedgerEntry
 from .matchmaker import GenomeMatchmaker, MatchResult
 from .chain import ChainRiskAggregator, ChainRiskResult
 from .extractor import PromptToGenomeExtractor, ExtractionError
+from .evaluation import RealWorldEvaluationLayer, Observation, TrustRealityReport
 from .reports import trust_report, compatibility_report, trust_report_docx
 
 __all__ = [
@@ -38,13 +39,14 @@ __all__ = [
     "CompatibilityScorer", "PairCompatibilityResult", "TeamCompatibilityResult",
     "DEFAULT_COMPAT_WEIGHTS", "COMPAT_WEIGHT_PROFILES",
     "Phenotype", "compute_phenotype", "describe_genome_schema", "GENOME_SCHEMA", "FieldSpec",
-    "DriftMonitor", "DriftReport", "ScoreSnapshot",
+    "DriftMonitor", "DriftReport", "ScoreSnapshot", "DriftMonitorV2", "DriftReportV2",
     "IncidentFeedback", "Incident", "IncidentSeverity", "ObservedScoreResult",
     "GenomeLedger", "LedgerEntry",
     "GenomeMatchmaker", "MatchResult",
     "ChainRiskAggregator", "ChainRiskResult",
     "PromptToGenomeExtractor", "ExtractionError",
+    "RealWorldEvaluationLayer", "Observation", "TrustRealityReport",
     "trust_report", "compatibility_report", "trust_report_docx",
 ]
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
