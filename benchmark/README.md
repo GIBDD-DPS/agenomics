@@ -1,6 +1,10 @@
-# Agenomics Synthetic Benchmark Suite v0.1
+# Agenomics Synthetic Benchmark Suite
 
 **Автор**: Dm.Andreyanov · **Проект**: Prizolov Lab
+
+> 📊 Зафиксированные числовые результаты конкретного прогона —
+> [`BENCHMARKS.md`](BENCHMARKS.md). Этот README — методология и честные
+> ограничения, BENCHMARKS.md — цифры, пригодные для цитирования.
 
 ## Зачем это нужно
 
@@ -28,16 +32,27 @@
 PYTHONPATH=. python3 -m benchmark.run_benchmark
 ```
 
-## Метрики v0.1
+## Метрики
 
 | Метрика | Статус | Что проверяет |
 |---|---|---|
 | Reproducibility | ✅ computed | Один и тот же геном даёт идентичный результат при повторных запусках |
 | Behavioral Predictability (formula consistency) | ✅ computed | Predictability монотонно убывает при росте `drift_rate` |
 | Trust Calibration (formula consistency) | ✅ computed | Trust Score монотонно растёт с синтетическим "истинным качеством" |
-| Compatibility Accuracy | ✅ computed | "Compatible" пары получают систематически более высокий score, чем "conflicting" (на 4 вручную сконструированных случаях) |
-| Drift Detection Lag | ✅ computed | Сколько шагов после реального начала деградации нужно `DriftMonitor`, чтобы поднять alert |
-| Incident Correlation | ⛔ not_computable | **Честно невозможно синтетически** — требует реальных production-данных |
+| Compatibility Accuracy (v0.1, n=4) | ✅ computed | Исходная версия — 4 вручную сконструированных случая |
+| **Compatibility Accuracy v2 (n=270)** | ✅ computed | Та же проверка на 270 случаях, 9 систематических категорий (см. ниже) |
+| Drift Detection Lag (v1) | ✅ computed | Задержка обнаружения на `DriftMonitor` v1 (нашла реальный баг — mild не обнаруживалась) |
+| **Drift Detection v2 (7 сценариев)** | ✅ computed | `DriftMonitorV2`: no_drift/mild/moderate/severe/sudden/recovery/oscillation |
+| Incident Correlation | ⛔ not_computable | **Честно невозможно синтетически** — требует реальных production-данных. Инфраструктура для реального вычисления — `agenomics.RealWorldEvaluationLayer` |
+
+## 9 категорий Compatibility ground truth v2
+
+`obvious_compatible`, `compatible`, `near_threshold` (ambiguous), `neutral`
+(ambiguous), `mild_conflict`, `strong_conflict`, `ethical_conflict`,
+`high_risk_combination`, `role_complementarity` — по 30 случаев в каждой
+(270 всего), сгенерированы систематическим перебором параметров
+(`benchmark/scenarios.py::generate_compatibility_ground_truth`), не
+случайно — воспроизводимость сохраняется.
 
 ## Текущие результаты и что они реально означают
 
@@ -56,26 +71,31 @@ PYTHONPATH=. python3 -m benchmark.run_benchmark
   чувствительна к нелинейности — это артефакт конструкции синтетического
   сценария, не дефект формулы Trust Model. Итог всё равно строго
   монотонен (см. `raw_data` в результате).
-- **Compatibility Accuracy = 1.0** — полное разделение на 4 вручную
-  подобранных случаях. Это НЕ статистически значимая выборка (n=4) —
-  нужно больше случаев для содержательной оценки, особенно граничных.
-- **Drift Detection Lag: mild-деградация НЕ обнаруживается вовсе** за
-  15 шагов при текущем пороге эвристики (см. `docs/METHODOLOGY.md`,
-  раздел 8.1, "Drift Monitor"). Это реальное найденное ограничение,
-  а не гипотетическое — эвристика на основе линейного наклона
-  недостаточно чувствительна к слабой, но устойчивой деградации.
-  Кандидат на исправление в v0.5+ (например, экспоненциальное
-  сглаживание вместо простого наклона первая-последняя точка).
+- **Compatibility Accuracy (v0.1) = 1.0** — полное разделение на 4
+  вручную подобранных случаях. Это НЕ статистически значимая выборка
+  (n=4). **Решено в v0.6.0** — `Compatibility Accuracy v2` подтверждает
+  то же полное разделение уже на 270 случаях в 9 категориях (см. таблицу
+  выше и [`BENCHMARKS.md`](BENCHMARKS.md)).
+- **Drift Detection Lag (v1): mild-деградация НЕ обнаруживается вовсе**
+  за 15 шагов при линейной эвристике v1 (см. `docs/METHODOLOGY.md`,
+  раздел 8.1). Это реальное найденное ограничение, а не гипотетическое.
+  **Исправлено в v0.6.0** — `DriftMonitorV2` (rolling window + EWMA +
+  явная классификация тяжести) обнаруживает mild-деградацию; подробности
+  и honest caveat про остаточный transient на колебаниях — в
+  [`BENCHMARKS.md`](BENCHMARKS.md).
 
 ## Как расширять
 
-- Больше случаев в `compatibility_ground_truth_cases()` — особенно
-  пограничные (near-threshold), не только явно контрастные
-- Добавить метрику **Weight Sensitivity** — насколько сильно итоговый
-  score зависит от конкретных весов профиля (устойчивость к малым
-  изменениям калибровки)
-- Когда появятся реальные production-данные через `GenomeLedger` —
-  реализовать `measure_incident_correlation()` по-настоящему, на них
+- Ещё больше случаев/категорий в `generate_compatibility_ground_truth()` —
+  особенно вокруг границ (near_threshold) с более мелким шагом
+- Weight Sensitivity — насколько сильно итоговый score зависит от
+  конкретных весов профиля (устойчивость к малым изменениям калибровки)
+- **Реальная Incident Correlation теперь технически возможна** —
+  `agenomics.RealWorldEvaluationLayer` собирает Declared Score + реальные
+  инциденты + дрейф во времени и считает корреляцию, когда накопится
+  достаточно наблюдений (`min_observations`, по умолчанию 10). Просто
+  пока никто не накопил реальные production-данные, чтобы прогнать это
+  не на тестовых, а на настоящих наблюдениях
 
 ## Честная граница ответственности
 
