@@ -1,9 +1,9 @@
 """
-metrics.py — метрики Agenomics Synthetic Benchmark Suite v0.1.
+metrics.py — метрики Agenomics Synthetic Benchmark Suite.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.5.0
+Версия: 0.6.0
 
 Каждая метрика возвращает BenchmarkResult с явным полем `status`:
   - "computed"       — реально вычислено на синтетических данных
@@ -26,7 +26,10 @@ from .scenarios import (
     drift_rate_spectrum_genomes,
     compatibility_ground_truth_cases,
     drift_timeseries_with_known_degradation,
+    generate_compatibility_ground_truth,
+    DRIFT_SCENARIOS_V2,
 )
+from agenomics.drift import DriftMonitorV2
 
 
 @dataclass
@@ -215,7 +218,131 @@ def measure_compatibility_accuracy() -> BenchmarkResult:
     )
 
 
-# --- 5. Drift Detection (lag on synthetic degradation) -----------------------
+# --- 4b. Compatibility Accuracy v2 (расширенный ground truth, n=270) -------
+
+def measure_compatibility_accuracy_v2(cases_per_category: int = 30) -> BenchmarkResult:
+    """
+    То же самое, что measure_compatibility_accuracy(), но на систематически
+    сгенерированном наборе из 9 категорий x cases_per_category случаев
+    (по умолчанию 270), а не на 4 вручную подобранных случаях v0.1.
+
+    Категории 'near_threshold' и 'neutral' размечены как "ambiguous" и
+    ИСКЛЮЧЕНЫ из бинарной accuracy — честно, а не потому что портят цифру:
+    они специально сконструированы как пограничные, и ожидать от них
+    чёткого попадания в "compatible"/"conflicting" было бы некорректной
+    постановкой эксперимента.
+    """
+    cases = generate_compatibility_ground_truth(cases_per_category)
+    scorer = CompatibilityScorer()
+
+    by_category: Dict[str, List[float]] = {}
+    compatible_scores: List[float] = []
+    conflicting_scores: List[float] = []
+
+    for case in cases:
+        result = scorer.score_pair(case.genome_a, case.genome_b)
+        by_category.setdefault(case.category, []).append(result.score)
+        if case.expected_label == "compatible":
+            compatible_scores.append(result.score)
+        elif case.expected_label == "conflicting":
+            conflicting_scores.append(result.score)
+        # "ambiguous" сознательно не участвует в бинарной метрике
+
+    if not compatible_scores or not conflicting_scores:
+        return BenchmarkResult(
+            metric="Compatibility Accuracy v2 (n={})".format(len(cases)),
+            status="not_computable",
+            detail="Нужны случаи обоих классов compatible/conflicting.",
+        )
+
+    min_compatible = min(compatible_scores)
+    max_conflicting = max(conflicting_scores)
+    fully_separated = min_compatible > max_conflicting
+
+    correct = sum(1 for s in compatible_scores if s > max_conflicting)
+    correct += sum(1 for s in conflicting_scores if s < min_compatible)
+    accuracy = correct / (len(compatible_scores) + len(conflicting_scores))
+
+    category_summary = {
+        cat: {"n": len(scores), "min": round(min(scores), 1), "max": round(max(scores), 1),
+              "avg": round(sum(scores) / len(scores), 1)}
+        for cat, scores in by_category.items()
+    }
+
+    return BenchmarkResult(
+        metric=f"Compatibility Accuracy v2 (n={len(cases)})",
+        status="computed",
+        value=accuracy,
+        detail=(
+            f"{len(cases)} систематически сгенерированных случаев (9 категорий, "
+            f"не 4 вручную подобранных, как в v0.1). Полное разделение "
+            f"compatible/conflicting: {fully_separated} "
+            f"(min_compatible={min_compatible:.1f}, max_conflicting={max_conflicting:.1f}). "
+            f"Категории 'near_threshold' и 'neutral' исключены из accuracy как "
+            f"намеренно пограничные — см. category_summary в raw_data."
+        ),
+        raw_data={"category_summary": category_summary, "fully_separated": fully_separated},
+    )
+
+
+# --- 5b. Drift Detection v2 (7 сценариев, DriftMonitorV2) -------------------
+
+def measure_drift_detection_v2() -> BenchmarkResult:
+    """
+    То же назначение, что measure_drift_detection_lag(), но на
+    DriftMonitorV2 и 7 сценариях вместо 3 уровней тяжести на DriftMonitor v1.
+    Явно проверяет то, что v1 не умел: false positive rate на 'no_drift'
+    и корректное различение 'sudden' от 'oscillation' ('volatile').
+    """
+    results_by_scenario = {}
+    for name, generator in DRIFT_SCENARIOS_V2.items():
+        scores = generator()
+        monitor = DriftMonitorV2()
+        first_alert_at = None
+        any_recovered = False
+        severities_seen = set()
+        for i, s in enumerate(scores):
+            monitor.record("synthetic-agent-v2", s)
+            r = monitor.report("synthetic-agent-v2")
+            if r.severity != "insufficient_data":
+                severities_seen.add(r.severity)
+                if r.alert and first_alert_at is None:
+                    first_alert_at = i
+                if r.recovered:
+                    any_recovered = True
+        results_by_scenario[name] = {
+            "first_alert_at": first_alert_at,
+            "recovered": any_recovered,
+            "severities_seen": sorted(severities_seen),
+        }
+
+    false_positive = results_by_scenario["no_drift"]["first_alert_at"] is not None
+    mild_detected = results_by_scenario["mild"]["first_alert_at"] is not None
+    recovery_detected = results_by_scenario["recovery"]["recovered"]
+    oscillation_clean = not any(
+        s in results_by_scenario["oscillation"]["severities_seen"] for s in ("severe", "moderate")
+    )
+
+    all_good = not false_positive and mild_detected and recovery_detected and oscillation_clean
+
+    return BenchmarkResult(
+        metric="Drift Detection v2 (7 scenarios)",
+        status="computed",
+        value=1.0 if all_good else 0.0,
+        detail=(
+            f"no_drift false positive: {false_positive} (должно быть False). "
+            f"mild обнаружена: {mild_detected} (в v1 была НЕ обнаружена вовсе — "
+            f"главное исправление v2). recovery обнаружено: {recovery_detected}. "
+            f"oscillation не даёт ложных severe/moderate: {oscillation_clean}. "
+            f"Известный transient: первые ~2 шага oscillation (до заполнения "
+            f"rolling_window) могут классифицироваться как 'sudden' вместо "
+            f"'volatile' — см. benchmark/BENCHMARKS.md."
+        ),
+        raw_data=results_by_scenario,
+    )
+
+
+
 
 def measure_drift_detection_lag() -> BenchmarkResult:
     """
@@ -297,6 +424,8 @@ def run_all_benchmarks() -> List[BenchmarkResult]:
         measure_behavioral_predictability_consistency(),
         measure_trust_calibration_consistency(),
         measure_compatibility_accuracy(),
+        measure_compatibility_accuracy_v2(),
         measure_drift_detection_lag(),
+        measure_drift_detection_v2(),
         measure_incident_correlation(),
     ]
