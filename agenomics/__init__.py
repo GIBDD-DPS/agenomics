@@ -6,7 +6,11 @@ Agenomics — Genetics for AI Agents.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.4.3
+Версия: 0.5.0
+
+Формальная спецификация уровней конвейера (Genome → Genome Schema →
+Phenotype → Trust Model → Compatibility Model → Drift Model →
+Observed Behaviour → Evolution/Mutation) — см. docs/SPECIFICATION.md.
 """
 
 from .trust_score import (
@@ -18,6 +22,7 @@ from .compatibility import (
     CompatibilityScorer, PairCompatibilityResult, TeamCompatibilityResult,
     DEFAULT_COMPAT_WEIGHTS, COMPAT_WEIGHT_PROFILES,
 )
+from .phenotype import Phenotype, compute_phenotype, describe_genome_schema, GENOME_SCHEMA, FieldSpec
 from .drift import DriftMonitor, DriftReport, ScoreSnapshot
 from .feedback import IncidentFeedback, Incident, IncidentSeverity, ObservedScoreResult
 from .ledger import GenomeLedger, LedgerEntry
@@ -32,6 +37,7 @@ __all__ = [
     "HOW_TO_GUIDE", "HOW_TO_GUIDE_TRANSLATIONS", "SUPPORTED_LANGUAGES",
     "CompatibilityScorer", "PairCompatibilityResult", "TeamCompatibilityResult",
     "DEFAULT_COMPAT_WEIGHTS", "COMPAT_WEIGHT_PROFILES",
+    "Phenotype", "compute_phenotype", "describe_genome_schema", "GENOME_SCHEMA", "FieldSpec",
     "DriftMonitor", "DriftReport", "ScoreSnapshot",
     "IncidentFeedback", "Incident", "IncidentSeverity", "ObservedScoreResult",
     "GenomeLedger", "LedgerEntry",
@@ -41,4 +47,4 @@ __all__ = [
     "trust_report", "compatibility_report", "trust_report_docx",
 ]
 
-__version__ = "0.4.3"
+__version__ = "0.5.0"
