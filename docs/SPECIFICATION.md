@@ -1,7 +1,7 @@
 # AGENOMICS SPECIFICATION v1.0
 
 **Автор**: Dm.Andreyanov · **Проект**: Prizolov Lab
-**Соответствует реализации**: agenomics v0.6.0
+**Проверено на реализации**: agenomics v0.7.0
 
 > Версионирование спецификации отделено от версионирования кода:
 > спецификация может оставаться v1.0 через несколько minor-релизов
@@ -149,7 +149,7 @@ transient, не устранённый полностью.
 
 ## 8. Observed Behaviour
 
-**Реализация**: `agenomics.Incident`, `agenomics.IncidentFeedback`, `agenomics.GenomeLedger`, `agenomics.RealWorldEvaluationLayer` (v0.6.0)
+**Реализация**: `agenomics.Incident`, `agenomics.IncidentFeedback`, `agenomics.GenomeLedger`, `agenomics.RealWorldEvaluationLayer` (v0.6.0), `agenomics.EvidenceStore` (v0.7.0)
 
 Единственный уровень конвейера, где в систему попадают **данные из
 реального мира**, а не производные от Genome. `IncidentFeedback`
@@ -157,22 +157,32 @@ transient, не устранённый полностью.
 подтверждённых инцидентов; `GenomeLedger` — append-only журнал того,
 что было заявлено и оценено, с хэш-цепочкой целостности.
 
-**`RealWorldEvaluationLayer` (v0.6.0)** — недостающая ранее связующая
-инфраструктура: собирает Declared Score + реальные инциденты + дрейф
-для агента во времени в одном месте и, когда накоплено достаточно
-наблюдений (`min_observations`), считает `TrustRealityReport` с
-реальной (не синтетической) корреляцией между Declared Score и
-нагрузкой инцидентов. До v0.6.0 такой единой точки не было — только
-разрозненные компоненты.
+**`RealWorldEvaluationLayer` (v0.6.0)** — связующая инфраструктура:
+собирает Declared Score + реальные инциденты + дрейф для агента во
+времени в одном месте и, когда накоплено достаточно наблюдений
+(`min_observations`), считает `TrustRealityReport` с реальной (не
+синтетической) корреляцией между Declared Score и нагрузкой инцидентов.
 
-**Текущая зрелость**: все компоненты реализованы и протестированы, но
-работают только **in-memory** — персистентность (файл/БД) и накопление
-данных за реальный период эксплуатации остаются на стороне пользователя
-библиотеки. Именно отсутствие накопленных Observed Behaviour данных —
-причина, по которой `benchmark.measure_incident_correlation()` честно
-возвращает `not_computable`, а не число: инфраструктура для реального
-вычисления теперь существует (`RealWorldEvaluationLayer`), но реальных
-данных, чтобы её прогнать, пока ни у кого нет.
+**`EvidenceStore` (v0.7.0)** — закрывает ограничение, которое честно
+признавалось с v0.6.0: `RealWorldEvaluationLayer` сам по себе in-memory
+и не переживает перезапуск процесса. `EvidenceStore` — персистентное
+(SQLite, часть стандартной библиотеки — без новых внешних зависимостей)
+хранилище наблюдений и инцидентов с provenance-полями (`genome_hash`,
+`agenomics_version`, `timestamp`). Экспортирует в JSON/CSV. Функция
+`replay_into_evaluation_layer()` воспроизводит сохранённые наблюдения
+обратно в свежий `RealWorldEvaluationLayer` — то есть цикл «записать →
+перезапустить процесс → загрузить обратно → посчитать корреляцию»
+теперь реально работает, а не только теоретически возможен.
+
+**Текущая зрелость**: `EvidenceStore` — первый компонент уровня
+Observed Behaviour, который персистентен. Остальные компоненты
+(`RealWorldEvaluationLayer`, `DriftMonitorV2`) всё ещё in-memory —
+`EvidenceStore` дополняет их, а не заменяет их внутреннюю логику.
+Именно отсутствие накопленных за реальный период эксплуатации данных —
+а не отсутствие инфраструктуры для их хранения — причина, по которой
+`benchmark.measure_incident_correlation()` по-прежнему честно
+возвращает `not_computable`: технически собрать такие данные теперь
+можно, но пока никто не собрал.
 
 ## 9. Evolution / Mutation
 
@@ -192,7 +202,7 @@ transient, не устранённый полностью.
 `agent_id`, система могла бы предлагать (не применять автоматически)
 скорректированные значения полей Genome — например, снижать заявленный
 `bias_control`, если инциденты систематически указывают на ось `ethics`.
-Это открытый пункт v0.7+, не более.
+Это открытый пункт v0.8+, не более.
 
 ---
 
@@ -208,17 +218,18 @@ transient, не устранённый полностью.
 | Trust Model | Reproducibility, Trust Calibration (formula consistency) |
 | Compatibility Model | Compatibility Accuracy v2 (n=270, 9 категорий) |
 | Drift Model | Drift Detection Lag (v1) / Drift Detection v2 (7 сценариев, `DriftMonitorV2`) |
-| Observed Behaviour | Incident Correlation — честно `not_computable` синтетически; инфраструктура для реального вычисления — `RealWorldEvaluationLayer` |
+| Observed Behaviour | Incident Correlation — честно `not_computable` синтетически; инфраструктура для реального вычисления — `RealWorldEvaluationLayer` + `EvidenceStore` (персистентность) |
 | Evolution / Mutation | Не применимо — уровень не реализован |
 
 ## 11. Версионирование спецификации
 
-- **v1.0** (этот документ) — соответствует коду v0.6.0. Формализует
+- **v1.0** (этот документ) — проверено на коде v0.7.0. Формализует
   уровни 1-6 (Genome → Compatibility Model) как реализованные и
-  протестированные, 7-8 (Drift Model, Observed Behaviour) как
-  реализованные (включая DriftMonitorV2 и RealWorldEvaluationLayer),
-  но всё ещё незрелые (in-memory), 9 (Evolution/Mutation) как
-  нереализованные.
+  протестированные, 7 (Drift Model) и часть 8 (Observed Behaviour:
+  `IncidentFeedback`, `GenomeLedger`, `RealWorldEvaluationLayer`) —
+  реализованными, но in-memory; `EvidenceStore` (тоже уровень 8) —
+  первый персистентный компонент этого уровня. 9 (Evolution/Mutation)
+  — нереализованным.
 - Изменение состава уровней конвейера (не их реализации) потребует
   бампа до v2.0. Улучшение реализации существующего уровня (например,
   добавление персистентности Drift Model) не требует бампа спецификации.
