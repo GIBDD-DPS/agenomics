@@ -16,6 +16,8 @@
 > → Evolution/Mutation) — [`docs/SPECIFICATION.md`](docs/SPECIFICATION.md).
 > Воспроизводимый бенчмарк внутренней согласованности формул (не путать
 > с валидацией против реальных инцидентов) — [`benchmark/README.md`](benchmark/README.md).
+> 🚀 Хотите подключить реального агента и начать собирать данные для
+> Incident Correlation? — [`docs/CONNECT_YOUR_AGENTS.md`](docs/CONNECT_YOUR_AGENTS.md) (15 минут).
 >
 > ⚠️ Методология следует **semver 0.x** — до релиза `1.0.0` обратная
 > совместимость API не гарантируется между minor-версиями. Между 0.2 и 0.3
@@ -419,6 +421,7 @@ Python. **`requirements.txt`** нужен для *запуска этого ре
 - [x] v0.6.1 — **Evidence Quality**: Weight Sensitivity, Threshold Sensitivity, Bootstrap 95% CI (`benchmark/sensitivity.py`) — устойчивость метрик, не новый функционал
 - [x] v0.7.0 — **Evidence Store** (`agenomics/evidence.py`) — персистентное (SQLite, stdlib) хранилище наблюдений/инцидентов с provenance, JSON/CSV экспорт, `replay_into_evaluation_layer()`
 - [x] v0.7.0 — CI теперь явно прогоняет `benchmark.run_benchmark` отдельным шагом (помимо unit-тестов)
+- [x] v0.7.0 — [`docs/CONNECT_YOUR_AGENTS.md`](docs/CONNECT_YOUR_AGENTS.md) — практический гайд подключения реальных агентов за 15 минут (единственный оставшийся барьер до predictive validity — не код, а реальные данные)
 - [ ] v0.8 — Evolution/Mutation как **предложение**, требующее подтверждения человеком (не автоматическая саморегуляция) — пока не реализовано даже как прототип
 - [ ] v0.8 — реальная Incident Correlation на настоящих production-данных, накопленных через EvidenceStore (инфраструктура уже готова с двух сторон — сбор и хранение)
 - [ ] v0.8 — формальный Evaluation Protocol (EP-001..EP-00N с input/ground truth/metric/threshold/CI на каждый)
