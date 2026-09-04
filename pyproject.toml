@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agenomics"
-version = "0.6.1"
+version = "0.7.0"
 description = "Genetics for AI Agents — predictability and compatibility scoring for autonomous agent personalities."
 authors = [{ name = "Dm.Andreyanov" }]
 license = { text = "Apache-2.0" }
