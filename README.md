@@ -4,11 +4,11 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Status](https://img.shields.io/badge/status-v0.6.1-orange.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-v0.7.0-orange.svg)](CHANGELOG.md)
 [![PyPI](https://img.shields.io/badge/PyPI-agenomics-blue.svg)](https://pypi.org/project/agenomics/)
 
 > **Автор**: Dm.Andreyanov
-> **Версия**: 0.6.1
+> **Версия**: 0.7.0
 > **Связанные проекты**: [Prizolov Lab](https://prizolov.ru) / [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
 >
 > 📐 Формальная спецификация конвейера (Genome → Genome Schema → Phenotype
@@ -202,6 +202,25 @@ print(report.correlation)  # реальная (не синтетическая!)
 раньше она была принципиально `not_computable` из-за отсутствия
 единой точки сбора.
 
+### Evidence Store (v0.7.0) — персистентность поверх Real-World Evaluation Layer
+
+```python
+from agenomics import EvidenceStore, replay_into_evaluation_layer, RealWorldEvaluationLayer
+
+# Записываем наблюдения — переживают перезапуск процесса (SQLite, stdlib)
+store = EvidenceStore("agenomics_evidence.db")
+store.record_observation("support-bot", declared_score=85, declared_label="Trusted", genome_hash="abc123")
+store.export_json("export.json")  # или export_csv(...)
+
+# ...после перезапуска процесса — свежий, пустой RealWorldEvaluationLayer:
+layer = RealWorldEvaluationLayer(min_observations=10)
+replay_into_evaluation_layer(store, layer, "support-bot")  # восстанавливает историю с диска
+print(layer.trust_reality_report("support-bot"))
+```
+
+`EvidenceStore` не заменяет `RealWorldEvaluationLayer` — дополняет его
+персистентностью, которой ему честно не хватало с v0.6.0.
+
 ### Веб-API
 
 Методология доступна и как HTTP-API — `POST /score` и `POST /compatibility`.
@@ -327,6 +346,7 @@ agenomics/
 │   ├── compatibility.py     # CompatibilityScorer
 │   ├── phenotype.py          # Genome Schema, Phenotype (SPECIFICATION.md)
 │   ├── evaluation.py          # Real-World Evaluation Layer (v0.6.0)
+│   ├── evidence.py             # Evidence Store — персистентность, SQLite (v0.7.0)
 │   ├── drift.py                # Drift Monitor
 │   ├── feedback.py              # Incident Feedback Loop
 │   ├── ledger.py                  # Genome Ledger
@@ -339,7 +359,7 @@ agenomics/
 │                              # репо-инструмент, НЕ входит в pip-пакет — см. benchmark/README.md
 ├── prompts/                 # системные промпты (Trust Auditor и др.)
 ├── docs/                     # SPECIFICATION.md, METHODOLOGY.md
-├── tests/                     # тесты (100+)
+├── tests/                     # тесты (120+)
 ├── .github/workflows/          # CI — тесты запускаются на каждый push/PR
 ├── amvera.yml                   # конфиг деплоя веб-API на Amvera
 ├── requirements.txt               # зависимости для ЗАПУСКА (тесты, FastAPI/uvicorn)
@@ -397,12 +417,15 @@ Python. **`requirements.txt`** нужен для *запуска этого ре
 - [x] v0.6.0 — **RealWorldEvaluationLayer** — инфраструктура для реальной (не синтетической) Incident Correlation на production-данных
 - [x] v0.6.0 — `benchmark/BENCHMARKS.md` — зафиксированные, воспроизводимые числа
 - [x] v0.6.1 — **Evidence Quality**: Weight Sensitivity, Threshold Sensitivity, Bootstrap 95% CI (`benchmark/sensitivity.py`) — устойчивость метрик, не новый функционал
-- [ ] v0.7 — Evolution/Mutation (пока не реализовано даже как прототип — открытый пункт спецификации, ожидает накопления реальных данных через RealWorldEvaluationLayer)
-- [ ] v0.7 — реальная Incident Correlation на настоящих production-данных (инфраструктура уже готова)
-- [ ] v0.7 — веб-калькулятор на prizolov.ru
-- [ ] v0.7 — Genome Ledger как публичный сервис (сейчас — только локальный in-memory прототип)
-- [ ] v0.7 — персистентность Drift Monitor / RealWorldEvaluationLayer (сейчас состояние живёт только в памяти процесса)
-- [ ] v0.7 — мультиязычность за пределами ru/en (требует новых словарей переводов вручную)
+- [x] v0.7.0 — **Evidence Store** (`agenomics/evidence.py`) — персистентное (SQLite, stdlib) хранилище наблюдений/инцидентов с provenance, JSON/CSV экспорт, `replay_into_evaluation_layer()`
+- [x] v0.7.0 — CI теперь явно прогоняет `benchmark.run_benchmark` отдельным шагом (помимо unit-тестов)
+- [ ] v0.8 — Evolution/Mutation как **предложение**, требующее подтверждения человеком (не автоматическая саморегуляция) — пока не реализовано даже как прототип
+- [ ] v0.8 — реальная Incident Correlation на настоящих production-данных, накопленных через EvidenceStore (инфраструктура уже готова с двух сторон — сбор и хранение)
+- [ ] v0.8 — формальный Evaluation Protocol (EP-001..EP-00N с input/ground truth/metric/threshold/CI на каждый)
+- [ ] v0.8 — предиктивная валидность (Trust Score(t) → вероятность инцидента в будущем, ROC-AUC/Brier Score) — качественно другой уровень, чем текущая корреляция
+- [ ] v0.8 — веб-калькулятор на prizolov.ru
+- [ ] v0.8 — Genome Ledger как публичный сервис (сейчас — только локальный in-memory прототип)
+- [ ] v0.8 — мультиязычность за пределами ru/en (требует новых словарей переводов вручную)
 
 Полная история изменений — в [`CHANGELOG.md`](CHANGELOG.md).
 
