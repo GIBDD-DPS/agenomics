@@ -1,7 +1,7 @@
 # AGENOMICS SPECIFICATION v1.0
 
 **Автор**: Dm.Andreyanov · **Проект**: Prizolov Lab
-**Соответствует реализации**: agenomics v0.5.0
+**Соответствует реализации**: agenomics v0.6.0
 
 > Версионирование спецификации отделено от версионирования кода:
 > спецификация может оставаться v1.0 через несколько minor-релизов
@@ -129,18 +129,27 @@ compute_phenotype(genome_tier3).expressed_traits["accountability"]  # 9.0
 
 ## 7. Drift Model
 
-**Реализация**: `agenomics.DriftMonitor`
+**Реализация**: `agenomics.DriftMonitor` (v1), `agenomics.DriftMonitorV2` (v0.6.0)
 
 Единственная модель в конвейере, оперирующая **историей во времени**,
 а не одним снимком. Вход — последовательность `TrustResult.score` для
-одного `agent_id`; выход — тренд (`improving`/`stable`/`degrading`) и
-алерт. Ограничения (in-memory, простая линейная эвристика, не
-обнаруживает слабую деградацию — см. `benchmark/README.md`) —
-`docs/METHODOLOGY.md`, раздел 8.1.
+одного `agent_id`; выход — тренд/тяжесть и алерт.
+
+`DriftMonitor` (v1) — простая линейная эвристика (первый снимок vs
+последний). Ограничение, найденное бенчмарком (`benchmark/BENCHMARKS.md`):
+не обнаруживала слабую (mild) деградацию за разумное окно наблюдения.
+
+`DriftMonitorV2` (v0.6.0) — rolling window + EWMA + волатильность +
+явная классификация тяжести (`none`/`mild`/`moderate`/`severe`/`sudden`/
+`volatile`) + обнаружение восстановления (`recovered`). Откалибрована
+на 7 синтетических сценариях (`benchmark/scenarios.py::DRIFT_SCENARIOS_V2`).
+Честный остаточный дефект: первые ~2 снимка колебательного паттерна (до
+заполнения rolling window) могут классифицироваться неточно — известный
+transient, не устранённый полностью.
 
 ## 8. Observed Behaviour
 
-**Реализация**: `agenomics.Incident`, `agenomics.IncidentFeedback`, `agenomics.GenomeLedger`
+**Реализация**: `agenomics.Incident`, `agenomics.IncidentFeedback`, `agenomics.GenomeLedger`, `agenomics.RealWorldEvaluationLayer` (v0.6.0)
 
 Единственный уровень конвейера, где в систему попадают **данные из
 реального мира**, а не производные от Genome. `IncidentFeedback`
@@ -148,12 +157,22 @@ compute_phenotype(genome_tier3).expressed_traits["accountability"]  # 9.0
 подтверждённых инцидентов; `GenomeLedger` — append-only журнал того,
 что было заявлено и оценено, с хэш-цепочкой целостности.
 
-**Текущая зрелость**: оба компонента реализованы и протестированы, но
+**`RealWorldEvaluationLayer` (v0.6.0)** — недостающая ранее связующая
+инфраструктура: собирает Declared Score + реальные инциденты + дрейф
+для агента во времени в одном месте и, когда накоплено достаточно
+наблюдений (`min_observations`), считает `TrustRealityReport` с
+реальной (не синтетической) корреляцией между Declared Score и
+нагрузкой инцидентов. До v0.6.0 такой единой точки не было — только
+разрозненные компоненты.
+
+**Текущая зрелость**: все компоненты реализованы и протестированы, но
 работают только **in-memory** — персистентность (файл/БД) и накопление
 данных за реальный период эксплуатации остаются на стороне пользователя
 библиотеки. Именно отсутствие накопленных Observed Behaviour данных —
 причина, по которой `benchmark.measure_incident_correlation()` честно
-возвращает `not_computable`, а не число.
+возвращает `not_computable`, а не число: инфраструктура для реального
+вычисления теперь существует (`RealWorldEvaluationLayer`), но реальных
+данных, чтобы её прогнать, пока ни у кого нет.
 
 ## 9. Evolution / Mutation
 
@@ -173,7 +192,7 @@ compute_phenotype(genome_tier3).expressed_traits["accountability"]  # 9.0
 `agent_id`, система могла бы предлагать (не применять автоматически)
 скорректированные значения полей Genome — например, снижать заявленный
 `bias_control`, если инциденты систематически указывают на ось `ethics`.
-Это открытый пункт v0.6+, не более.
+Это открытый пункт v0.7+, не более.
 
 ---
 
@@ -187,17 +206,19 @@ compute_phenotype(genome_tier3).expressed_traits["accountability"]  # 9.0
 | Genome Schema | `tests/test_phenotype.py` (согласованность схемы и кода) |
 | Phenotype | `tests/test_phenotype.py` (генотип→разный фенотип по контексту) |
 | Trust Model | Reproducibility, Trust Calibration (formula consistency) |
-| Compatibility Model | Compatibility Accuracy |
-| Drift Model | Drift Detection Lag |
-| Observed Behaviour | Incident Correlation — **честно not_computable** |
+| Compatibility Model | Compatibility Accuracy v2 (n=270, 9 категорий) |
+| Drift Model | Drift Detection Lag (v1) / Drift Detection v2 (7 сценариев, `DriftMonitorV2`) |
+| Observed Behaviour | Incident Correlation — честно `not_computable` синтетически; инфраструктура для реального вычисления — `RealWorldEvaluationLayer` |
 | Evolution / Mutation | Не применимо — уровень не реализован |
 
 ## 11. Версионирование спецификации
 
-- **v1.0** (этот документ) — соответствует коду v0.5.0. Формализует
+- **v1.0** (этот документ) — соответствует коду v0.6.0. Формализует
   уровни 1-6 (Genome → Compatibility Model) как реализованные и
-  протестированные, 7-8 (Observed Behaviour) как реализованные, но
-  незрелые (in-memory), 9 (Evolution/Mutation) как нереализованные.
+  протестированные, 7-8 (Drift Model, Observed Behaviour) как
+  реализованные (включая DriftMonitorV2 и RealWorldEvaluationLayer),
+  но всё ещё незрелые (in-memory), 9 (Evolution/Mutation) как
+  нереализованные.
 - Изменение состава уровней конвейера (не их реализации) потребует
   бампа до v2.0. Улучшение реализации существующего уровня (например,
   добавление персистентности Drift Model) не требует бампа спецификации.
