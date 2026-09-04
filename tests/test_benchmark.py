@@ -1,9 +1,9 @@
 """
-test_benchmark.py — тесты Agenomics Synthetic Benchmark Suite v0.1.
+test_benchmark.py — тесты Agenomics Synthetic Benchmark Suite.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.5.0
+Версия: 0.6.0
 """
 
 from benchmark.metrics import (
@@ -72,9 +72,9 @@ def test_incident_correlation_honestly_not_computable():
     assert "реальных" in result.detail or "real" in result.detail.lower()
 
 
-def test_run_all_benchmarks_returns_six_results():
+def test_run_all_benchmarks_returns_eight_results():
     results = run_all_benchmarks()
-    assert len(results) == 6
+    assert len(results) == 8
     statuses = {r.status for r in results}
     assert statuses == {"computed", "not_computable"}
     not_computable = [r for r in results if r.status == "not_computable"]
