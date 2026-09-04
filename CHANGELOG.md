@@ -4,6 +4,22 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/),
 версионирование — [Semantic Versioning](https://semver.org/) (0.x — API нестабилен).
 
+## [0.7.0] — 2026-09-04
+
+### Добавлено
+- **EvidenceStore** (`agenomics/evidence.py`) — персистентное (SQLite, часть стандартной библиотеки — без новых внешних зависимостей) хранилище наблюдений и инцидентов с provenance-полями (`genome_hash`, `agenomics_version`, `timestamp`). Экспорт в JSON/CSV
+- **`replay_into_evaluation_layer()`** — воспроизводит сохранённые наблюдения обратно в свежий `RealWorldEvaluationLayer` (например, после перезапуска процесса) — полный цикл «записать → перезапуск → загрузить → посчитать корреляцию» теперь реально работает
+- `RealWorldEvaluationLayer.record_raw_observation()` — низкоуровневый метод записи по сырым score/label/confidence, без полноценного `TrustResult` (нужен для replay из `EvidenceStore`); `record_observation()` теперь тонкая обёртка над ним
+- CI (`.github/workflows/tests.yml`) — добавлен явный шаг прогона `benchmark.run_benchmark` (помимо unit-тестов, для наглядности в логах)
+- 9 новых тестов (`tests/test_evidence.py`) + 1 новый тест на `record_raw_observation`, итого 120/120 тестов проходят
+
+### Исправлено
+- `docs/SPECIFICATION.md`: устранён рассинхрон версии («Соответствует реализации: v0.6.0» при реальном коде v0.6.1) — переформулировано как «Проверено на реализации: v0.7.0» (семантически точнее — спецификация не следует за кодом автоматически, а верифицируется на конкретной версии)
+
+### Контекст
+- Реализовано по итогам двух внешних ревью подряд, независимо указавших на одно и то же: persistence — следующий необходимый шаг после Evidence Quality (v0.6.1), раньше Evolution/Mutation
+- Осознанно НЕ реализовано в этом релизе: формальный Evaluation Protocol (EP-001..EP-00N), предиктивная модель (ROC-AUC/Brier Score), Evolution/Mutation как proposal-механизм — следующие шаги v0.8+
+
 ## [0.6.1] — 2026-09-03
 
 ### Добавлено — Evidence Quality (укрепление существующего, не новый функционал)
