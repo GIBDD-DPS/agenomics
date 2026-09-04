@@ -4,12 +4,30 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agenomics"
-version = "0.4.3"
+version = "0.5.0"
 description = "Genetics for AI Agents — predictability and compatibility scoring for autonomous agent personalities."
 authors = [{ name = "Dm.Andreyanov" }]
 license = { text = "Apache-2.0" }
 readme = "README.md"
 requires-python = ">=3.9"
+keywords = [
+    "ai-agents", "trust-score", "agent-trust", "multi-agent-systems",
+    "ai-safety", "llm-agents", "agent-evaluation", "agent-governance",
+    "compatibility-score", "ai-agent-audit",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 
 [project.optional-dependencies]
 docx = ["python-docx>=1.0.0"]
