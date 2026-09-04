@@ -4,6 +4,42 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/),
 версионирование — [Semantic Versioning](https://semver.org/) (0.x — API нестабилен).
 
+## [0.5.0] — 2026-09-03
+
+### Добавлено
+- **AGENOMICS SPECIFICATION v1.0** (`docs/SPECIFICATION.md`) — формальный конвейер: Agent Genome → Genome Schema → Phenotype → Trust Model → Compatibility Model → Drift Model → Observed Behaviour → Evolution/Mutation. Versioning спецификации отделено от версионирования кода.
+- **Genome Schema** (`agenomics/phenotype.py`, `describe_genome_schema()`) — machine-readable описание полей `AgentGenome`, синхронизировано тестом с реальным dataclass
+- **Phenotype** (`agenomics/phenotype.py`, `compute_phenotype()`) — новое понятие: "выраженные" значения осей после взаимодействия генома с контекстом (Impact Tier), но до весов Trust Model. Доказано тестом, что одинаковый Genome в разном Tier даёт разный Phenotype
+- **Agenomics Synthetic Benchmark Suite v0.1** (`benchmark/`) — 6 метрик из внешнего запроса на референсную спецификацию:
+  - Reproducibility, Behavioral Predictability, Trust Calibration, Compatibility Accuracy, Drift Detection Lag — вычислены синтетически, с явной меткой "formula consistency", НЕ "real-world validity"
+  - Incident Correlation — честно помечена `not_computable`: синтетическая имитация была бы циркулярной, требует реальных production-данных
+  - Найдено реальное ограничение: `DriftMonitor` не обнаруживает mild-деградацию за 15 шагов при текущей эвристике — задокументировано, не скрыто
+- 15 новых тестов (`tests/test_phenotype.py`, `tests/test_benchmark.py`), итого 79/79 тестов проходят
+- `keywords`/`classifiers` в `pyproject.toml` — для находимости на PyPI
+
+### Примечание о честности
+- Раздел 9 спецификации (Evolution/Mutation) явно помечен как **не реализованный** — ни кода, ни прототипа. Не выдаётся за существующее.
+- `benchmark/README.md` содержит явное разграничение: internal formula consistency ≠ real-world predictive validity — та же причина, по которой была убрана вымышленная статистика на "20 агентах" из первой версии статьи-анонса.
+
+## [0.4.3] — 2026-09-03
+
+### Добавлено
+- **Мультиязычность**: `TrustScorer(language="ru"|"en")` и `CompatibilityScorer(language="ru"|"en")` — переводят `recommendations`, `capped_reason`, `how_to` детерминированно (без LLM)
+- `trust_report()`, `compatibility_report()`, `trust_report_docx()` теперь принимают `language="ru"|"en"` для заголовков/подписей отчёта
+- `SUPPORTED_LANGUAGES`, `HOW_TO_GUIDE_TRANSLATIONS` экспортированы из пакета
+- Промпт Trust Auditor (v0.4): добавлен ШАГ -1 — инструкция вести аудит на языке описания агента (не гарантия, зависит от LLM — в отличие от параметра `language` в коде)
+- 10 новых тестов (`tests/test_i18n.py`)
+
+### Примечание
+- Поддержка языков за пределами ru/en требует добавления новых словарей переводов вручную — не универсальный перевод "из коробки"
+
+## [0.4.2] — 2026-09-03
+
+### Добавлено
+- **`trust_report_docx()`** (`agenomics/reports.py`) — брендированный Word-отчёт (шапка Prizolov Lab, прогресс-бары по осям, карточки рекомендаций) через `python-docx` (опциональная зависимость, `pip install agenomics[docx]`)
+- **`how_to`** — практическая подсказка «как сделать» для каждой оси, попавшей в рекомендации (`TrustResult.how_to`, используется в обоих форматах отчёта)
+- 4 новых теста (`tests/test_reports_docx.py`)
+
 ## [0.4.0] — 2026-09-03
 
 ### Добавлено
@@ -17,6 +53,7 @@
 - 20 новых тестов (`tests/test_v04_modules.py`), итого 47/47 тестов проходят
 
 ## [0.3.0] — 2026-09-02
+
 
 ### Добавлено
 - Настраиваемые профили весов Trust Score (`default`, `healthcare`, `finance`, `content`) и Compatibility Score (`default`, `safety_critical`)
