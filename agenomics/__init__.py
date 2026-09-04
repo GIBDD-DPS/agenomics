@@ -6,7 +6,7 @@ Agenomics — Genetics for AI Agents.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.6.0
+Версия: 0.6.1
 
 Формальная спецификация уровней конвейера (Genome → Genome Schema →
 Phenotype → Trust Model → Compatibility Model → Drift Model →
@@ -49,4 +49,4 @@ __all__ = [
     "trust_report", "compatibility_report", "trust_report_docx",
 ]
 
-__version__ = "0.6.0"
+__version__ = "0.6.1"
