@@ -4,6 +4,24 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/),
 версионирование — [Semantic Versioning](https://semver.org/) (0.x — API нестабилен).
 
+## [0.6.0] — 2026-09-03
+
+### Добавлено
+- **DriftMonitorV2** (`agenomics/drift.py`) — rolling window, EWMA, волатильность, baseline, явная классификация тяжести (`none`/`mild`/`moderate`/`severe`/`sudden`/`volatile`), обнаружение восстановления (`recovered`). Исправляет находку `benchmark/BENCHMARKS.md` v0.1: mild-деградация не обнаруживалась вовсе за 15 шагов на v1
+- **Compatibility Accuracy v2** (`benchmark/scenarios.py::generate_compatibility_ground_truth`) — 270 систематически сгенерированных случаев в 9 категориях вместо 4 ручных в v0.1
+- **RealWorldEvaluationLayer** (`agenomics/evaluation.py`) — новая инфраструктура уровня Observed Behaviour: собирает Declared Score + реальные инциденты + дрейф во времени, считает реальную (не синтетическую) корреляцию Trust Score ↔ Incident Rate при достаточном количестве наблюдений. Делает `Incident Correlation` вычислимой метрикой на настоящих данных — раньше единой точки сбора не было
+- **`benchmark/BENCHMARKS.md`** — опубликованный, воспроизводимый отчёт с зафиксированными числами (8 метрик, 7 computed + Incident Correlation not_computable), пригодный для цитирования как Engineering Evidence
+- 7 сценариев деградации (`no_drift`/`mild`/`moderate`/`severe`/`sudden`/`recovery`/`oscillation`) для калибровки DriftMonitorV2
+- 21 новый тест (`tests/test_drift_v2.py`, `tests/test_compat_ground_truth_v2.py`, `tests/test_evaluation.py`), итого 100/100 тестов проходят
+
+### Честные находки при разработке v0.6.0 (не скрыты, задокументированы)
+- При калибровке DriftMonitorV2 колебания (oscillation) без тренда изначально ложно классифицировались как `sudden` — исправлено подсчётом смен знака приращений, отличающим колебание от единичного устойчивого скачка
+- Остаточный transient: первые ~2 снимка колебательного паттерна (до заполнения rolling window) всё ещё могут классифицироваться неточно как `sudden` вместо `volatile` — не устранено полностью, заявлять обратное было бы нечестно
+- Compatibility Accuracy v2 остаётся синтетическим ground truth (сконструированным вручную) — 270 случаев надёжнее 4, но не замена реальным данным
+
+### Приоритизация (по внешнему запросу)
+- Real-World Evaluation Layer реализован ДО Evolution/Mutation — по обоснованному аргументу, что мутировать геном без накопленных реальных наблюдений бессмысленно. Evolution/Mutation остаётся нереализованным пунктом v0.7+
+
 ## [0.5.0] — 2026-09-03
 
 ### Добавлено
