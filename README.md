@@ -4,12 +4,18 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Status](https://img.shields.io/badge/status-v0.4.3-orange.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-v0.5.0-orange.svg)](CHANGELOG.md)
 [![PyPI](https://img.shields.io/badge/PyPI-agenomics-blue.svg)](https://pypi.org/project/agenomics/)
 
 > **Автор**: Dm.Andreyanov
-> **Версия**: 0.4.3
+> **Версия**: 0.5.0
 > **Связанные проекты**: [Prizolov Lab](https://prizolov.ru) / [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
+>
+> 📐 Формальная спецификация конвейера (Genome → Genome Schema → Phenotype
+> → Trust Model → Compatibility Model → Drift Model → Observed Behaviour
+> → Evolution/Mutation) — [`docs/SPECIFICATION.md`](docs/SPECIFICATION.md).
+> Воспроизводимый бенчмарк внутренней согласованности формул (не путать
+> с валидацией против реальных инцидентов) — [`benchmark/README.md`](benchmark/README.md).
 >
 > ⚠️ Методология следует **semver 0.x** — до релиза `1.0.0` обратная
 > совместимость API не гарантируется между minor-версиями. Между 0.2 и 0.3
@@ -149,6 +155,20 @@ genome = AgentGenome(id="support-refunds", domains=["support", "finance"])
 print(genome.tier)  # ImpactTier.TIER_3
 ```
 
+### Phenotype (v0.5.0) — геном + контекст = выраженные признаки
+
+```python
+from agenomics import compute_phenotype, describe_genome_schema
+
+# Одинаковый geном в разном контексте (Tier) даёт разный Phenotype —
+# см. полную формализацию в docs/SPECIFICATION.md
+pheno = compute_phenotype(genome)
+print(pheno.expressed_traits)  # tier-adjusted значения осей, до весов Trust Model
+
+# Machine-readable описание допустимых полей AgentGenome:
+describe_genome_schema()
+```
+
 ### Веб-API
 
 Методология доступна и как HTTP-API — `POST /score` и `POST /compatibility`.
@@ -272,17 +292,20 @@ agenomics/
 ├── agenomics/
 │   ├── trust_score.py       # AgentGenome, TrustScorer
 │   ├── compatibility.py     # CompatibilityScorer
-│   ├── drift.py              # Drift Monitor
-│   ├── feedback.py           # Incident Feedback Loop
-│   ├── ledger.py              # Genome Ledger
-│   ├── matchmaker.py           # Genome Matchmaker
-│   ├── chain.py                 # Chain Risk Aggregator
-│   ├── extractor.py              # Prompt-to-Genome Extractor
-│   ├── reports.py                 # Markdown-отчёты
-│   └── api.py                      # веб-API (FastAPI)
+│   ├── phenotype.py          # Genome Schema, Phenotype (SPECIFICATION.md)
+│   ├── drift.py                # Drift Monitor
+│   ├── feedback.py              # Incident Feedback Loop
+│   ├── ledger.py                  # Genome Ledger
+│   ├── matchmaker.py               # Genome Matchmaker
+│   ├── chain.py                      # Chain Risk Aggregator
+│   ├── extractor.py                   # Prompt-to-Genome Extractor
+│   ├── reports.py                      # Markdown/DOCX-отчёты
+│   └── api.py                           # веб-API (FastAPI)
+├── benchmark/                # Synthetic Benchmark Suite (репо-инструмент,
+│                              # НЕ входит в pip-пакет — см. benchmark/README.md)
 ├── prompts/                 # системные промпты (Trust Auditor и др.)
-├── docs/                     # методология, whitepaper
-├── tests/                     # тесты (47+)
+├── docs/                     # SPECIFICATION.md, METHODOLOGY.md
+├── tests/                     # тесты (79+)
 ├── .github/workflows/          # CI — тесты запускаются на каждый push/PR
 ├── amvera.yml                   # конфиг деплоя веб-API на Amvera
 ├── requirements.txt               # зависимости для ЗАПУСКА (тесты, FastAPI/uvicorn)
@@ -332,10 +355,15 @@ Python. **`requirements.txt`** нужен для *запуска этого ре
 - [x] v0.4.2 — trust_report_docx() — брендированный Word-отчёт (опц. python-docx)
 - [x] v0.4.3 — мультиязычность (`language="ru"|"en"` в Scorer'ах и report-функциях)
 - [x] v0.4.3 — инструкция определения языка в промпте Trust Auditor (v0.4)
-- [ ] v0.5 — веб-калькулятор на prizolov.ru
-- [ ] v0.5 — Genome Ledger как публичный сервис (сейчас — только локальный in-memory прототип)
-- [ ] v0.5 — персистентность Drift Monitor (сейчас состояние живёт только в памяти процесса)
-- [ ] v0.5 — мультиязычность за пределами ru/en (требует новых словарей переводов вручную)
+- [x] v0.5.0 — **AGENOMICS SPECIFICATION v1.0** (`docs/SPECIFICATION.md`) — формальный конвейер Genome → Genome Schema → Phenotype → Trust Model → Compatibility Model → Drift Model → Observed Behaviour → Evolution/Mutation
+- [x] v0.5.0 — Genome Schema + Phenotype как реализованные, тестируемые понятия (`agenomics/phenotype.py`)
+- [x] v0.5.0 — **Synthetic Benchmark Suite** (`benchmark/`) — 5 вычислимых метрик + честный `not_computable` для Incident Correlation
+- [ ] v0.6 — Evolution/Mutation (пока не реализовано даже как прототип — открытый пункт спецификации)
+- [ ] v0.6 — реальная Incident Correlation, когда накопятся production-данные через GenomeLedger
+- [ ] v0.6 — веб-калькулятор на prizolov.ru
+- [ ] v0.6 — Genome Ledger как публичный сервис (сейчас — только локальный in-memory прототип)
+- [ ] v0.6 — персистентность Drift Monitor (сейчас состояние живёт только в памяти процесса)
+- [ ] v0.6 — мультиязычность за пределами ru/en (требует новых словарей переводов вручную)
 
 Полная история изменений — в [`CHANGELOG.md`](CHANGELOG.md).
 
