@@ -1,22 +1,24 @@
 """
-run_benchmark.py — CLI-запуск Agenomics Synthetic Benchmark Suite v0.1.
+run_benchmark.py — CLI-запуск Agenomics Synthetic Benchmark Suite.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.5.0
+Версия: 0.6.1
 
 Запуск:
     PYTHONPATH=. python3 benchmark/run_benchmark.py
 """
 
 from .metrics import run_all_benchmarks
+from .sensitivity import run_sensitivity_suite
 
 
 def print_report():
     results = run_all_benchmarks()
+    sensitivity_results = run_sensitivity_suite()
 
     print("=" * 78)
-    print("AGENOMICS SYNTHETIC BENCHMARK SUITE v0.1")
+    print("AGENOMICS SYNTHETIC BENCHMARK SUITE")
     print("Prizolov Lab · by Dm.Andreyanov")
     print("=" * 78)
     print()
@@ -40,6 +42,17 @@ def print_report():
     print("-" * 78)
     print(f"Итого: {computed}/{len(results)} метрик вычислено, "
           f"{len(results) - computed} честно помечены как not_computable.")
+
+    print()
+    print("=" * 78)
+    print("EVIDENCE QUALITY (v0.6.1) — устойчивость метрик, не новый функционал")
+    print("=" * 78)
+    print()
+    for r in sensitivity_results:
+        print(f"✅ {r.metric}")
+        print(f"   value:  {r.value}")
+        print(f"   detail: {r.detail}")
+        print()
     print("=" * 78)
 
 
