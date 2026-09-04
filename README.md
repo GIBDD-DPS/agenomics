@@ -4,11 +4,11 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Status](https://img.shields.io/badge/status-v0.6.0-orange.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-v0.6.1-orange.svg)](CHANGELOG.md)
 [![PyPI](https://img.shields.io/badge/PyPI-agenomics-blue.svg)](https://pypi.org/project/agenomics/)
 
 > **Автор**: Dm.Andreyanov
-> **Версия**: 0.6.0
+> **Версия**: 0.6.1
 > **Связанные проекты**: [Prizolov Lab](https://prizolov.ru) / [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
 >
 > 📐 Формальная спецификация конвейера (Genome → Genome Schema → Phenotype
@@ -335,8 +335,8 @@ agenomics/
 │   ├── extractor.py                   # Prompt-to-Genome Extractor
 │   ├── reports.py                      # Markdown/DOCX-отчёты
 │   └── api.py                           # веб-API (FastAPI)
-├── benchmark/                # Synthetic Benchmark Suite (репо-инструмент,
-│                              # НЕ входит в pip-пакет — см. benchmark/README.md)
+├── benchmark/                # Synthetic Benchmark Suite + Evidence Quality (sensitivity.py),
+│                              # репо-инструмент, НЕ входит в pip-пакет — см. benchmark/README.md
 ├── prompts/                 # системные промпты (Trust Auditor и др.)
 ├── docs/                     # SPECIFICATION.md, METHODOLOGY.md
 ├── tests/                     # тесты (100+)
@@ -396,6 +396,7 @@ Python. **`requirements.txt`** нужен для *запуска этого ре
 - [x] v0.6.0 — Compatibility Accuracy v2 — 270 систематических случаев в 9 категориях вместо 4 ручных
 - [x] v0.6.0 — **RealWorldEvaluationLayer** — инфраструктура для реальной (не синтетической) Incident Correlation на production-данных
 - [x] v0.6.0 — `benchmark/BENCHMARKS.md` — зафиксированные, воспроизводимые числа
+- [x] v0.6.1 — **Evidence Quality**: Weight Sensitivity, Threshold Sensitivity, Bootstrap 95% CI (`benchmark/sensitivity.py`) — устойчивость метрик, не новый функционал
 - [ ] v0.7 — Evolution/Mutation (пока не реализовано даже как прототип — открытый пункт спецификации, ожидает накопления реальных данных через RealWorldEvaluationLayer)
 - [ ] v0.7 — реальная Incident Correlation на настоящих production-данных (инфраструктура уже готова)
 - [ ] v0.7 — веб-калькулятор на prizolov.ru
