@@ -4,11 +4,11 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Status](https://img.shields.io/badge/status-v0.5.0-orange.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-v0.6.0-orange.svg)](CHANGELOG.md)
 [![PyPI](https://img.shields.io/badge/PyPI-agenomics-blue.svg)](https://pypi.org/project/agenomics/)
 
 > **Автор**: Dm.Andreyanov
-> **Версия**: 0.5.0
+> **Версия**: 0.6.0
 > **Связанные проекты**: [Prizolov Lab](https://prizolov.ru) / [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
 >
 > 📐 Формальная спецификация конвейера (Genome → Genome Schema → Phenotype
@@ -169,6 +169,39 @@ print(pheno.expressed_traits)  # tier-adjusted значения осей, до �
 describe_genome_schema()
 ```
 
+### DriftMonitor v2 (v0.6.0) — точнее обнаруживает деградацию
+
+```python
+from agenomics import DriftMonitorV2
+
+monitor = DriftMonitorV2()
+for score in [88, 88, 88, 85, 82, 78, 74]:  # слабая, но устойчивая деградация
+    monitor.record("support-bot", score)
+report = monitor.report("support-bot")
+print(report.severity)  # 'mild'/'moderate'/... — v1 не обнаруживал такое вовсе
+print(report.recovered)  # True, если ранее была тревога, а сейчас её нет
+```
+
+### Real-World Evaluation Layer (v0.6.0) — связь Declared Score с реальностью
+
+```python
+from agenomics import RealWorldEvaluationLayer, Incident, IncidentSeverity
+
+layer = RealWorldEvaluationLayer(min_observations=10)
+layer.record_observation("support-bot", trust_result, incidents=[])
+layer.record_observation("support-bot", trust_result_2, incidents=[Incident("...", IncidentSeverity.MODERATE)])
+# ... накопите 10+ реальных наблюдений ...
+
+report = layer.trust_reality_report("support-bot")
+print(report.status)       # "insufficient_data" пока не накоплено достаточно
+print(report.correlation)  # реальная (не синтетическая!) корреляция Declared Score ↔ инциденты
+```
+
+Это первая инфраструктура, делающая метрику **Incident Correlation** из
+[`benchmark/`](benchmark/README.md) вычислимой на настоящих данных —
+раньше она была принципиально `not_computable` из-за отсутствия
+единой точки сбора.
+
 ### Веб-API
 
 Методология доступна и как HTTP-API — `POST /score` и `POST /compatibility`.
@@ -293,6 +326,7 @@ agenomics/
 │   ├── trust_score.py       # AgentGenome, TrustScorer
 │   ├── compatibility.py     # CompatibilityScorer
 │   ├── phenotype.py          # Genome Schema, Phenotype (SPECIFICATION.md)
+│   ├── evaluation.py          # Real-World Evaluation Layer (v0.6.0)
 │   ├── drift.py                # Drift Monitor
 │   ├── feedback.py              # Incident Feedback Loop
 │   ├── ledger.py                  # Genome Ledger
@@ -305,7 +339,7 @@ agenomics/
 │                              # НЕ входит в pip-пакет — см. benchmark/README.md)
 ├── prompts/                 # системные промпты (Trust Auditor и др.)
 ├── docs/                     # SPECIFICATION.md, METHODOLOGY.md
-├── tests/                     # тесты (79+)
+├── tests/                     # тесты (100+)
 ├── .github/workflows/          # CI — тесты запускаются на каждый push/PR
 ├── amvera.yml                   # конфиг деплоя веб-API на Amvera
 ├── requirements.txt               # зависимости для ЗАПУСКА (тесты, FastAPI/uvicorn)
@@ -358,12 +392,16 @@ Python. **`requirements.txt`** нужен для *запуска этого ре
 - [x] v0.5.0 — **AGENOMICS SPECIFICATION v1.0** (`docs/SPECIFICATION.md`) — формальный конвейер Genome → Genome Schema → Phenotype → Trust Model → Compatibility Model → Drift Model → Observed Behaviour → Evolution/Mutation
 - [x] v0.5.0 — Genome Schema + Phenotype как реализованные, тестируемые понятия (`agenomics/phenotype.py`)
 - [x] v0.5.0 — **Synthetic Benchmark Suite** (`benchmark/`) — 5 вычислимых метрик + честный `not_computable` для Incident Correlation
-- [ ] v0.6 — Evolution/Mutation (пока не реализовано даже как прототип — открытый пункт спецификации)
-- [ ] v0.6 — реальная Incident Correlation, когда накопятся production-данные через GenomeLedger
-- [ ] v0.6 — веб-калькулятор на prizolov.ru
-- [ ] v0.6 — Genome Ledger как публичный сервис (сейчас — только локальный in-memory прототип)
-- [ ] v0.6 — персистентность Drift Monitor (сейчас состояние живёт только в памяти процесса)
-- [ ] v0.6 — мультиязычность за пределами ru/en (требует новых словарей переводов вручную)
+- [x] v0.6.0 — **DriftMonitorV2** (rolling window, EWMA, волатильность, severity, recovery detection) — исправляет находку бенчмарка v0.1 (mild-деградация не обнаруживалась)
+- [x] v0.6.0 — Compatibility Accuracy v2 — 270 систематических случаев в 9 категориях вместо 4 ручных
+- [x] v0.6.0 — **RealWorldEvaluationLayer** — инфраструктура для реальной (не синтетической) Incident Correlation на production-данных
+- [x] v0.6.0 — `benchmark/BENCHMARKS.md` — зафиксированные, воспроизводимые числа
+- [ ] v0.7 — Evolution/Mutation (пока не реализовано даже как прототип — открытый пункт спецификации, ожидает накопления реальных данных через RealWorldEvaluationLayer)
+- [ ] v0.7 — реальная Incident Correlation на настоящих production-данных (инфраструктура уже готова)
+- [ ] v0.7 — веб-калькулятор на prizolov.ru
+- [ ] v0.7 — Genome Ledger как публичный сервис (сейчас — только локальный in-memory прототип)
+- [ ] v0.7 — персистентность Drift Monitor / RealWorldEvaluationLayer (сейчас состояние живёт только в памяти процесса)
+- [ ] v0.7 — мультиязычность за пределами ru/en (требует новых словарей переводов вручную)
 
 Полная история изменений — в [`CHANGELOG.md`](CHANGELOG.md).
 
