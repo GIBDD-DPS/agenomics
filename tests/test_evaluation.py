@@ -1,9 +1,9 @@
 """
-test_evaluation.py — тесты Real-World Evaluation Layer (v0.6.0).
+test_evaluation.py — тесты Real-World Evaluation Layer (v0.6.0, дополнено в v0.7.0).
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.6.0
+Версия: 0.7.0
 
 ВАЖНО: тесты здесь проверяют МЕХАНИКУ подсчёта (правильно ли считается
 корреляция на контролируемых, заранее сконструированных данных) — а не
@@ -106,3 +106,16 @@ def test_observations_accessor_returns_recorded_history():
     obs = layer.observations("agent-6")
     assert len(obs) == 2
     assert obs[0].declared_score != obs[1].declared_score or True  # просто проверяем, что history не теряется
+
+
+def test_record_raw_observation_bypasses_trust_result():
+    """record_raw_observation (v0.7.0) должен работать идентично
+    record_observation, но принимая сырые значения — нужен для
+    воспроизведения данных из EvidenceStore, где полного TrustResult нет."""
+    layer = RealWorldEvaluationLayer(min_observations=2)
+    layer.record_raw_observation("agent-7", score=90.0, label="Trusted", confidence="High")
+    layer.record_raw_observation("agent-7", score=88.0, label="Trusted", confidence="High")
+    obs = layer.observations("agent-7")
+    assert len(obs) == 2
+    assert obs[0].declared_score == 90.0
+    assert obs[1].declared_label == "Trusted"
