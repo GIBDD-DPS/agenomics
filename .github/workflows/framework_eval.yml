@@ -19,10 +19,25 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install agenomics
         run: |
           python -m pip install --upgrade pip
           pip install agenomics
+
+      - name: Install framework libraries
+        run: |
+          pip install langchain langchain-openai
+          pip install ag2
+          pip install crewai
+          pip install llama-index-core llama-index-llms-openai
+          pip install semantic-kernel
+          pip install langgraph
+          pip install haystack-ai
+          pip install "camel-ai[web_tools]"
+          pip install openai-agents
+          pip install griptape
+          pip install requests
+        continue-on-error: true
 
       - name: Restore evidence database from previous run
         uses: actions/cache@v4
