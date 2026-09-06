@@ -4,7 +4,7 @@ import sys
 sys.path.insert(0, ".")
 
 from agenomics import EvidenceStore
-from full_pipeline import run_framework_and_record, _HISTORY
+from full_pipeline import run_framework_and_record
 from genome_from_capture import _detect_leaked_secrets, derive_genome_from_capture
 
 
@@ -38,8 +38,16 @@ def test_derived_genome_leaves_bias_control_none():
     assert result.genome.transparency is None
 
 
-def test_derived_genome_has_ledger_true():
+def test_derived_genome_has_ledger_false_by_default():
+    """[v0.7.2, исправление после внешнего разбора] has_ledger больше НЕ
+    True по умолчанию: capture_log сам по себе не делает фреймворк
+    обладателем настоящего audit trail."""
     result = derive_genome_from_capture("x", "log", domain="content", autonomy="advisory")
+    assert result.genome.has_ledger is False
+
+
+def test_has_ledger_can_be_explicitly_asserted_true():
+    result = derive_genome_from_capture("x", "log", domain="content", autonomy="advisory", has_ledger=True)
     assert result.genome.has_ledger is True
 
 
@@ -58,7 +66,6 @@ def test_predictability_requires_three_runs():
 
 
 def test_full_pipeline_records_observation():
-    _HISTORY.clear()
     store = EvidenceStore(":memory:")
 
     def clean_run():
@@ -73,7 +80,6 @@ def test_full_pipeline_records_observation():
 
 
 def test_full_pipeline_crash_becomes_confirmed_incident():
-    _HISTORY.clear()
     store = EvidenceStore(":memory:")
 
     def crashing_run():
@@ -89,7 +95,6 @@ def test_full_pipeline_crash_becomes_confirmed_incident():
 
 
 def test_full_pipeline_leak_becomes_data_leak_incident():
-    _HISTORY.clear()
     store = EvidenceStore(":memory:")
 
     def leaking_run():
@@ -99,6 +104,36 @@ def test_full_pipeline_leak_becomes_data_leak_incident():
     obs = store.get_observations("leak-fw")[0]
     assert any(inc["category"] == "data_leak" for inc in obs.incidents)
     store.close()
+
+
+def test_history_persists_across_separate_evidence_store_objects():
+    """[v0.7.2, ключевой регрессионный тест] Имитация реального сценария
+    GitHub Actions: КАЖДЫЙ вызов run_framework_and_record идёт с НОВЫМ
+    объектом EvidenceStore на том же файле (как между отдельными
+    процессами). История не должна теряться. Раньше (баг, найденный
+    внешним разбором) она хранилась в module-level _HISTORY и терялась
+    при каждом новом процессе."""
+    import tempfile
+
+    def sometimes_fails():
+        import random
+        if random.random() < 0.5:
+            raise RuntimeError("boom")
+        print("ok")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = f"{tmp}/restart.db"
+        for _ in range(5):
+            store = EvidenceStore(db_path)  # "новый процесс"
+            run_framework_and_record("restart-fw", sometimes_fails, store, domain="content", print_report=False)
+            store.close()  # "процесс завершился". Если бы история была в памяти, она бы тут пропала
+
+        final_store = EvidenceStore(db_path)
+        observations = final_store.get_observations("restart-fw")
+        assert len(observations) == 5
+        # Все execution_status должны быть реально сохранены персистентно
+        assert all(o.execution_status in ("success", "error") for o in observations)
+        final_store.close()
 
 
 if __name__ == "__main__":
