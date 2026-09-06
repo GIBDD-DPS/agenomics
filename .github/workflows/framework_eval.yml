@@ -37,6 +37,21 @@ jobs:
           pip install openai-agents
           pip install griptape
           pip install requests
+          pip install letta-client
+          pip install agno
+          pip install pydantic-ai
+          pip install smolagents
+          pip install dspy
+          pip install agent-framework
+          pip install marvin
+          pip install atomic-agents instructor
+          pip install langroid
+          pip install strands-agents
+          pip install praisonaiagents
+          pip install portia-sdk-python
+          pip install txtai
+          pip install agentscope
+          pip install google-adk
         continue-on-error: true
 
       - name: Restore evidence database from previous run
