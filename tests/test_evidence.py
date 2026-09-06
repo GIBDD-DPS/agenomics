@@ -3,7 +3,7 @@ test_evidence.py. Тесты Evidence Store.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.7.2
+Версия: 0.7.3
 """
 
 import json
@@ -279,3 +279,63 @@ def test_aep001_replay_preserves_structured_incident_fields():
     assert replayed_incident.category == IncidentCategory.DATA_LEAK
     assert replayed_incident.source == IncidentSource.AUTOMATED_MONITOR
     assert replayed_incident.confirmed is False
+
+
+# --- Тесты миграции схемы (v0.7.3) --------------------------------------
+
+def test_migrates_old_schema_file_missing_new_columns():
+    """Регрессионный тест на реальный баг: файл базы, созданный до
+    появления execution_status/duration_seconds (например, до v0.7.2,
+    восстановленный из кэша GitHub Actions), должен получить эти
+    колонки автоматически при следующем открытии, а не падать с
+    sqlite3.OperationalError при первой же записи."""
+    import sqlite3
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = os.path.join(tmp, "old_schema.db")
+        conn = sqlite3.connect(db_path)
+        conn.executescript(
+            """
+            CREATE TABLE observations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                declared_score REAL NOT NULL,
+                declared_label TEXT NOT NULL,
+                declared_confidence TEXT,
+                genome_hash TEXT,
+                genome_version TEXT,
+                trust_model_version TEXT,
+                evaluation_period TEXT,
+                request_count INTEGER,
+                schema_version TEXT,
+                collector TEXT,
+                source TEXT
+            );
+            CREATE TABLE incidents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                observation_id INTEGER NOT NULL,
+                severity TEXT NOT NULL,
+                description TEXT,
+                category TEXT,
+                source TEXT,
+                confirmed INTEGER,
+                resolution TEXT
+            );
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        # Открываем старый файл текущим кодом. Раньше здесь падало с
+        # "table observations has no column named execution_status".
+        store = EvidenceStore(db_path)
+        store.record_observation(
+            "agent-a", 60.0, "Conditional",
+            execution_status="success", duration_seconds=2.5,
+        )
+        obs = store.get_observations("agent-a")[0]
+        assert obs.execution_status == "success"
+        assert obs.duration_seconds == 2.5
+        store.close()
