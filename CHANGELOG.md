@@ -4,6 +4,12 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/),
 версионирование: [Semantic Versioning](https://semver.org/) (0.x: API нестабилен).
 
+## [0.7.3] - 2026-09-06
+
+### Исправлено
+- **Критично: `EvidenceStore` падал с `sqlite3.OperationalError: table observations has no column named execution_status` на файлах базы, созданных до v0.7.2.** `CREATE TABLE IF NOT EXISTS` не трогает уже существующую таблицу, поэтому файл базы, восстановленный из кэша GitHub Actions после нескольких запусков на 0.7.1, никогда не получал новые колонки `execution_status`/`duration_seconds` сам по себе. Реально воспроизведено на настоящем прогоне `framework_eval.yml` (14 фреймворков, кэш с прошлой версии). Исправлено миграцией схемы: `EvidenceStore.__init__` теперь проверяет фактические колонки через `PRAGMA table_info` и добавляет недостающие через `ALTER TABLE`
+- Регрессионный тест `test_migrates_old_schema_file_missing_new_columns`, воспроизводящий именно эту ситуацию (файл со старой схемой, открытый текущим кодом)
+
 ## [0.7.2] - 2026-09-06
 
 ### Добавлено
