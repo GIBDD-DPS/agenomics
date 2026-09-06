@@ -4,11 +4,11 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Status](https://img.shields.io/badge/status-v0.7.2-orange.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-v0.7.3-orange.svg)](CHANGELOG.md)
 [![PyPI](https://img.shields.io/badge/PyPI-agenomics-blue.svg)](https://pypi.org/project/agenomics/)
 
 > **Автор**: Dm.Andreyanov
-> **Версия**: 0.7.2
+> **Версия**: 0.7.3
 > **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
 >
 > 📐 Формальная спецификация конвейера (Genome → Genome Schema → Phenotype
@@ -474,6 +474,7 @@ Python. `requirements.txt` нужен для запуска этого репо�
 - [x] v0.7.2: `EvidenceStore` получил `execution_status` и `duration_seconds`. Исправляет баг: история для `predictability` хранилась только в памяти процесса и терялась между запусками CI
 - [x] v0.7.2: `has_ledger` больше не выставляется в `True` только потому, что лог агента был захвачен. Честный дефолт `False`, явный параметр для подтверждённых случаев
 - [x] v0.7.2: Framework Evaluation smoke-тест в основном CI, 12 тестов на механику пайплайна без установки всех 14 реальных библиотек
+- [x] v0.7.3: исправлена миграция схемы `EvidenceStore` — файлы базы со старой схемой (например, восстановленные из кэша GitHub Actions) теперь получают недостающие колонки автоматически, а не падают с `sqlite3.OperationalError`
 - [ ] v0.8: Evolution/Mutation как предложение, требующее подтверждения человеком, не реализовано даже как прототип
 - [ ] v0.8: реальная Incident Correlation на настоящих production-данных, накопленных через EvidenceStore
 - [ ] v0.8: формальный Evaluation Protocol (EP-001..EP-00N с input, ground truth, metric, threshold, CI на каждый)
