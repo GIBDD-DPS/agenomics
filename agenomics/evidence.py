@@ -91,6 +91,20 @@ class StoredObservation:
     incidents: List[Dict] = field(default_factory=list)
 
 
+_EXPECTED_OBSERVATION_COLUMNS = {
+    "genome_hash": "TEXT",
+    "genome_version": "TEXT",
+    "trust_model_version": "TEXT",
+    "evaluation_period": "TEXT",
+    "request_count": "INTEGER",
+    "schema_version": "TEXT",
+    "collector": "TEXT",
+    "source": "TEXT",
+    "execution_status": "TEXT",
+    "duration_seconds": "REAL",
+}
+
+
 class EvidenceStore:
     """Хранит наблюдения и инциденты в SQLite по схеме AEP-001.
     Не заменяет RealWorldEvaluationLayer, только даёт ему пережить рестарт."""
@@ -99,6 +113,24 @@ class EvidenceStore:
         self.db_path = db_path
         self._conn = sqlite3.connect(db_path)
         self._conn.executescript(_SCHEMA_SQL)
+        self._conn.commit()
+        self._migrate_schema()
+
+    def _migrate_schema(self) -> None:
+        """Добавляет недостающие колонки в уже существующий файл базы.
+
+        CREATE TABLE IF NOT EXISTS не трогает таблицу, которая уже
+        существует, поэтому файл базы, созданный старой версией
+        agenomics (например, восстановленный из кэша GitHub Actions),
+        никогда не получил бы новые колонки сам по себе. Это и был
+        реальный баг: execution_status/duration_seconds появились в
+        схеме в 0.7.2, но старый файл базы, переживший несколько
+        запусков CI на 0.7.1, эти колонки не имел, и запись падала
+        с sqlite3.OperationalError."""
+        existing = {row[1] for row in self._conn.execute("PRAGMA table_info(observations)")}
+        for column, sql_type in _EXPECTED_OBSERVATION_COLUMNS.items():
+            if column not in existing:
+                self._conn.execute(f"ALTER TABLE observations ADD COLUMN {column} {sql_type}")
         self._conn.commit()
 
     def record_observation(
