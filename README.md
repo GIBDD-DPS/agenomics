@@ -18,9 +18,11 @@
 > с валидацией против реальных инцидентов: [`benchmark/README.md`](benchmark/README.md).
 > 🚀 Хотите подключить реального агента и начать собирать данные для
 > Incident Correlation? Гайд на 15 минут: [`docs/CONNECT_YOUR_AGENTS.md`](docs/CONNECT_YOUR_AGENTS.md).
-> 🔌 Готовые, проверенные шаблоны для 14 публичных agent-фреймворков
-> (LangChain, CrewAI, AutoGen, LlamaIndex и других) с авто-обнаружением и
-> запуском по расписанию: [`examples/framework_evaluation/`](examples/framework_evaluation/README.md).
+> 🔌 Шаблоны-адаптеры для 14 публичных agent-фреймворков (LangChain,
+> CrewAI, AutoGen, LlamaIndex и других) с авто-обнаружением и запуском
+> по расписанию: [`examples/framework_evaluation/`](examples/framework_evaluation/README.md).
+> Наличие адаптера не означает гарантированную production-совместимость
+> со всеми 14 — это отправная точка для сбора реальных наблюдений, не готовая интеграция.
 >
 > ⚠️ Методология следует **semver 0.x**. До релиза `1.0.0` обратная
 > совместимость API не гарантируется между minor-версиями. Между 0.2 и 0.3
