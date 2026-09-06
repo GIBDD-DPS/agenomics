@@ -1,11 +1,17 @@
 """
-full_pipeline.py — полная интеграция: capture_log_v2 -> genome_from_capture
--> TrustScorer -> EvidenceStore, с честным AEP-001-видом данных.
+full_pipeline.py. Склеивает захват лога, построение генома, TrustScorer
+и запись в EvidenceStore в один вызов.
 
-Автор: доработка для интеграции с Agenomics
 Проект: Prizolov Lab
 
-Использование:
+Раньше история для predictability хранилась в словаре на уровне модуля,
+и он жил только в памяти одного процесса. В GitHub Actions каждый запуск
+это новый процесс, поэтому история никогда не накапливалась между
+запусками, хотя README обещал обратное. Теперь история загружается из
+самого EvidenceStore перед каждым построением генома, никакого состояния
+в памяти, которое можно потерять.
+
+Пример:
     from full_pipeline import run_framework_and_record
 
     run_framework_and_record(
@@ -17,20 +23,15 @@ full_pipeline.py — полная интеграция: capture_log_v2 -> genome
 import hashlib
 import json
 from datetime import datetime
-from typing import Callable, Dict, List, Optional
+from typing import Callable, List, Optional
 
 from agenomics import EvidenceStore, TrustScorer, trust_report
 
 from genome_from_capture import derive_genome_from_capture
 
-# История прогонов по framework — нужна для predictability (см.
-# genome_from_capture._derive_predictability_from_history). In-memory
-# на время сессии; при желании можно подгружать из EvidenceStore заранее.
-_HISTORY: Dict[str, Dict[str, List]] = {}
-
 
 def _genome_hash(genome) -> str:
-    """Тот же принцип, что и в agenomics.ledger — детерминированный хэш
+    """Тот же принцип, что в agenomics.ledger: детерминированный хэш
     по значениям полей, для provenance в AEP-001."""
     payload = {
         "domain": genome.domain, "autonomy": genome.autonomy.value if hasattr(genome.autonomy, "value") else genome.autonomy,
@@ -39,25 +40,41 @@ def _genome_hash(genome) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
 
 
+def _load_history_from_store(store: EvidenceStore, agent_id: str):
+    """Восстанавливает историю прогонов из файла базы, а не из памяти
+    процесса. Переживает перезапуск между запусками CI.
+
+    Наблюдения без execution_status (записанные до этой версии или из
+    другого источника) просто пропускаются, а не подставляются фиктивным
+    значением. Лучше меньше истории, чем искажённая."""
+    statuses, durations = [], []
+    for obs in store.get_observations(agent_id):
+        if obs.execution_status is not None:
+            statuses.append(obs.execution_status)
+            if obs.duration_seconds is not None:
+                durations.append(obs.duration_seconds)
+    return statuses, durations
+
+
 def run_framework_and_record(
     framework: str,
     run_fn: Callable,
     store: EvidenceStore,
     domain: Optional[str] = None,
     autonomy: str = "advisory",
+    has_ledger: bool = False,
     weight_profile: str = "default",
     loggers: Optional[List[str]] = None,
     print_report: bool = True,
 ) -> dict:
-    """
-    Один вызов = полный цикл: запуск -> захват лога -> честный геном ->
-    настоящий TrustScorer.score() -> запись в EvidenceStore с полным
-    набором полей AEP-001 (genome_hash, evaluation_period, collector,
-    source) и настоящими инцидентами (не placeholder 100/0, как в
-    первой версии импортёра).
+    """Один вызов делает всё: запускает агента, захватывает лог, строит
+    честный геном, считает настоящий TrustScorer.score() и записывает
+    результат в EvidenceStore со всеми полями AEP-001 (genome_hash,
+    evaluation_period, collector, source, execution_status,
+    duration_seconds) и реальными инцидентами.
 
-    Возвращает сводку {status, score, label, confidence, leaked_secrets}.
-    """
+    Возвращает словарь со сводкой: status, score, label, confidence,
+    leaked_secrets."""
     import io, contextlib, logging, time
     from datetime import timezone
     from agenomics import Incident, IncidentCategory, IncidentSeverity, IncidentSource
@@ -87,16 +104,18 @@ def run_framework_and_record(
     duration = round(time.perf_counter() - start_perf, 3)
     raw_log = stream.getvalue()
 
-    # --- Обновляем историю ПЕРЕД построением генома (текущий прогон
-    # тоже должен участвовать в оценке predictability) ---
-    hist = _HISTORY.setdefault(framework, {"statuses": [], "durations": []})
-    hist["statuses"].append(status)
-    hist["durations"].append(duration)
+    # История грузится из store до текущего прогона, затем текущий
+    # прогон добавляется к ней локально для передачи в genome_from_capture.
+    # Запись в store ниже (не какой-либо словарь в памяти) и есть то,
+    # что переживает перезапуск процесса.
+    past_statuses, past_durations = _load_history_from_store(store, framework)
+    history_statuses = past_statuses + [status]
+    history_durations = past_durations + [duration]
 
     derivation = derive_genome_from_capture(
-        framework, raw_log, domain=domain, autonomy=autonomy,
-        framework_history_statuses=hist["statuses"],
-        framework_history_durations=hist["durations"],
+        framework, raw_log, domain=domain, autonomy=autonomy, has_ledger=has_ledger,
+        framework_history_statuses=history_statuses,
+        framework_history_durations=history_durations,
     )
     genome = derivation.genome
 
@@ -122,11 +141,13 @@ def run_framework_and_record(
         declared_label=result.label,
         declared_confidence=result.confidence,
         genome_hash=_genome_hash(genome),
-        trust_model_version=None,  # проставится автоматически текущей версией agenomics
+        trust_model_version=None,  # проставится текущей версией agenomics
         evaluation_period=started_at.isoformat(),
         request_count=1,
         collector="sdk",
         source="full_pipeline.py",
+        execution_status=status,
+        duration_seconds=duration,
         incidents=incidents,
         timestamp=started_at,
     )
@@ -137,6 +158,8 @@ def run_framework_and_record(
             print("\nЗаметки о выводе генома:")
             for note in derivation.derivation_notes:
                 print(f"  - {note}")
+        print(f"\nИстория для predictability: {len(history_statuses)} прогонов "
+              f"(включая {len(past_statuses)} из предыдущих запусков процесса)")
 
     return {
         "framework": framework, "status": status, "score": result.score,
