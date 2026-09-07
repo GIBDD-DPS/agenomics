@@ -11,7 +11,7 @@ def run():
     from langgraph.graph import StateGraph, MessagesState, START, END
     from langchain_groq import ChatGroq
 
-    model = ChatGroq(model="llama-3.3-70b-versatile")
+    model = ChatGroq(model="openai/gpt-oss-20b")
 
     def call_model(state: MessagesState):
         response = model.invoke(state["messages"])
