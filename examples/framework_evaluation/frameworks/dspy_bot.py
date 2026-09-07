@@ -1,5 +1,6 @@
 """
-Шаблон под DSPy (Stanford), ReAct-агент, проверено по актуальной документации, 2026.
+Шаблон под DSPy (Stanford), переведён на Groq (бесплатный провайдер).
+Требует переменную окружения GROQ_API_KEY.
 """
 
 DOMAIN = "content"
@@ -9,7 +10,7 @@ AUTONOMY = "advisory"
 def run():
     import dspy
 
-    dspy.configure(lm=dspy.LM("openai/gpt-4o-mini"))  # замените на вашу модель
+    dspy.configure(lm=dspy.LM("groq/llama-3.3-70b-versatile"))
 
     def get_weather(city: str) -> str:
         """Get the current weather for a city."""
@@ -17,10 +18,10 @@ def run():
 
     agent = dspy.ReAct(
         signature="question -> answer",
-        tools=[get_weather],  # замените на ваши реальные инструменты
+        tools=[get_weather],
         max_iters=5,
     )
 
-    result = agent(question="Какая погода в Париже?")  # замените на вашу реальную задачу
+    result = agent(question="Какая погода в Париже?")
     print(result.answer)
     return result
