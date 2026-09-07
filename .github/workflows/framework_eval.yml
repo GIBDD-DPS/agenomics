@@ -26,32 +26,22 @@ jobs:
 
       - name: Install framework libraries
         run: |
-          pip install langchain langchain-openai
+          pip install langchain langchain-groq
           pip install ag2
           pip install crewai
-          pip install llama-index-core llama-index-llms-openai
-          pip install semantic-kernel
+          pip install llama-index-core llama-index-llms-groq
           pip install langgraph
           pip install haystack-ai
           pip install "camel-ai[web_tools]"
-          pip install openai-agents
           pip install griptape
-          pip install requests
-          pip install letta-client
           pip install agno
           pip install pydantic-ai
-          pip install smolagents
           pip install dspy
-          pip install agent-framework
-          pip install marvin
-          pip install atomic-agents instructor
-          pip install langroid
-          pip install strands-agents
-          pip install praisonaiagents
-          pip install portia-sdk-python
-          pip install txtai
-          pip install agentscope
+          pip install atomic-agents instructor groq
+          pip install smolagents
           pip install google-adk
+          pip install txtai
+          pip install requests
         continue-on-error: true
 
       - name: Restore evidence database from previous run
@@ -64,6 +54,9 @@ jobs:
 
       - name: Run all frameworks
         run: python run_all_frameworks.py
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
 
       - name: Upload evidence database as downloadable artifact
         uses: actions/upload-artifact@v4
