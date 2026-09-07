@@ -1,14 +1,7 @@
 """
-Шаблон под txtai (NeuML), проверено по актуальной документации, 2026.
-
-Заменяет изначально предложенную Eliza (ai16z) - та написана на
-TypeScript/Node.js, а не Python, и не вписалась бы в наш пайплайн
-def run(): без городения subprocess-обёртки вокруг Node.js.
-
-Честная оговорка: txtai.Agent построен поверх smolagents (тот же
-движок, что и у уже добавленного smolagents_bot.py), но это отдельный,
-активно поддерживаемый пакет NeuML с собственным фокусом на embeddings
-и RAG, а не просто дубликат.
+Шаблон под txtai (NeuML), переведён на Groq (бесплатный провайдер, через
+litellm-стиль строки модели, унаследованный от smolagents под капотом).
+Требует переменную окружения GROQ_API_KEY.
 """
 
 DOMAIN = "content"
@@ -24,11 +17,11 @@ def run():
         return datetime.today().isoformat()
 
     agent = Agent(
-        model="gpt-4o-mini",  # замените на вашу модель
-        tools=[today, "websearch"],  # замените на ваши реальные инструменты/embeddings-базы
+        model="groq/llama-3.3-70b-versatile",
+        tools=[today, "websearch"],
         max_iterations=5,
     )
 
-    result = agent("Что такое txtai в двух предложениях?")  # замените на вашу реальную задачу
+    result = agent("Что такое txtai в двух предложениях?")
     print(result)
     return result
