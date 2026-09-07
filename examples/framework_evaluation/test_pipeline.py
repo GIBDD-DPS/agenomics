@@ -91,6 +91,12 @@ def test_full_pipeline_crash_becomes_confirmed_incident():
     assert len(obs.incidents) == 1
     assert obs.incidents[0]["confirmed"] is True
     assert obs.incidents[0]["severity"] == "severe"
+    # Регрессия: раньше описание было шаблонным ("исключение при
+    # выполнении") без текста самой ошибки, из базы было невозможно
+    # понять причину падения. Теперь реальный текст исключения обязан
+    # попадать в description.
+    assert "ValueError" in obs.incidents[0]["description"]
+    assert "boom" in obs.incidents[0]["description"]
     store.close()
 
 
