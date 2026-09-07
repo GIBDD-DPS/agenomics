@@ -1,6 +1,16 @@
 """
 Шаблон под Atomic Agents, переведён на Groq (бесплатный провайдер, через
 instructor.from_groq()). Требует пакет groq и переменную GROQ_API_KEY.
+
+НЕОБЪЯСНЁННАЯ НАХОДКА: в реальном прогоне CI импорт падал с
+"ImportError: cannot import name 'AtomicAgent' from 'atomic_agents'",
+хотя именно такой импорт указан в официальной документации PyPI на
+момент проверки. Возможная причина - конфликт версий зависимостей при
+установке 14 других фреймворков в то же окружение (например, версия
+instructor/pydantic, которую требует один из соседних пакетов).
+Если воспроизводится у вас - попробуйте установить atomic-agents в
+изолированном окружении отдельно от остальных 14, чтобы проверить
+гипотезу.
 """
 
 DOMAIN = "content"
@@ -27,7 +37,7 @@ def run():
     agent = AtomicAgent[BasicChatInputSchema, CustomOutputSchema](
         config=AgentConfig(
             client=client,
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-20b",
             system_prompt_generator=system_prompt_generator,
             history=ChatHistory(),
         )
