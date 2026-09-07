@@ -12,7 +12,7 @@ def run():
     from agno.models.groq import Groq
 
     agent = Agent(
-        model=Groq(id="llama-3.3-70b-versatile"),
+        model=Groq(id="openai/gpt-oss-20b"),
         description="You are a helpful assistant.",
         markdown=True,
     )
