@@ -1,13 +1,8 @@
 """
-Шаблон под Google ADK (Agent Development Kit), проверено по актуальной
-документации, 2026.
-
-Заменяет изначально предложенный BabyAGI - тот фактически неактивен
-(ни одного смёрженного PR с мая 2024), официально описывается автором
-как экспериментальный, "не для продакшена", и не является нормально
-версионируемым pip-пакетом. Google ADK - реальный, активно
-поддерживаемый SDK, закрывает пробел: у нас были Microsoft/AWS/OpenAI/
-Hugging Face, но не было ничего от Google.
+Шаблон под Google ADK (Agent Development Kit). Уже использует бесплатный
+провайдер (Gemini API free tier через Google AI Studio), изменений в
+логике не требовалось - нужен только GOOGLE_API_KEY (бесплатный ключ
+с ai.google.dev).
 """
 
 DOMAIN = "content"
@@ -22,7 +17,7 @@ def run():
 
     agent = Agent(
         name="assistant",
-        model="gemini-2.5-flash",  # замените на вашу модель, нужен GOOGLE_API_KEY
+        model="gemini-2.5-flash",
         instruction="You are a helpful assistant.",
     )
 
