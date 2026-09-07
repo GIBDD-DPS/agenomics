@@ -18,11 +18,12 @@
 > с валидацией против реальных инцидентов: [`benchmark/README.md`](benchmark/README.md).
 > 🚀 Хотите подключить реального агента и начать собирать данные для
 > Incident Correlation? Гайд на 15 минут: [`docs/CONNECT_YOUR_AGENTS.md`](docs/CONNECT_YOUR_AGENTS.md).
-> 🔌 Шаблоны-адаптеры для 14 публичных agent-фреймворков (LangChain,
-> CrewAI, AutoGen, LlamaIndex и других) с авто-обнаружением и запуском
-> по расписанию: [`examples/framework_evaluation/`](examples/framework_evaluation/README.md).
+> 🔌 Шаблоны-адаптеры для 15 популярных agent-фреймворков на бесплатном
+> провайдере (LangChain, CrewAI, AG2, LlamaIndex, Griptape и других)
+> с авто-обнаружением и запуском по расписанию:
+> [`examples/framework_evaluation/`](examples/framework_evaluation/README.md).
 > Наличие адаптера не означает гарантированную production-совместимость
-> со всеми 14 — это отправная точка для сбора реальных наблюдений, не готовая интеграция.
+> со всеми 15. Это отправная точка для сбора реальных наблюдений, не готовая интеграция.
 >
 > ⚠️ Методология следует **semver 0.x**. До релиза `1.0.0` обратная
 > совместимость API не гарантируется между minor-версиями. Между 0.2 и 0.3
@@ -401,7 +402,7 @@ agenomics/
 │   ├── reports.py                      # Markdown/DOCX-отчёты
 │   └── api.py                           # веб-API (FastAPI)
 ├── examples/
-│   └── framework_evaluation/  # Автоматический сбор реальных данных с 14 agent-фреймворков
+│   └── framework_evaluation/  # Автоматический сбор реальных данных с 15 agent-фреймворков
 ├── benchmark/                # Synthetic Benchmark Suite и Evidence Quality (sensitivity.py),
 │                              # репо-инструмент, не входит в pip-пакет, см. benchmark/README.md
 ├── prompts/                 # системные промпты (Trust Auditor и др.)
@@ -472,14 +473,15 @@ Python. `requirements.txt` нужен для запуска этого репо�
 - [x] v0.7.1: `PerAxisDriftMonitor`, дрейф каждой оси Trust Score отдельно
 - [x] v0.7.1: Team Compatibility Heatmap (`agenomics/heatmap.py`)
 - [x] v0.7.1: [`docs/PRIZOLOV_BRIDGE_INTERFACE.md`](docs/PRIZOLOV_BRIDGE_INTERFACE.md), честный интерфейс-контракт для внешних интеграций
-- [x] v0.7.2: **`examples/framework_evaluation/`**, автоматический сбор реальных наблюдений с 14 публичных agent-фреймворков (LangChain, CrewAI, AutoGen/AG2, LlamaIndex, Semantic Kernel, LangGraph, Haystack, CAMEL-AI, OpenAI Agents SDK, Griptape и другие), с авто-обнаружением новых фреймворков и запуском по расписанию через GitHub Actions
+- [x] v0.7.2: **`examples/framework_evaluation/`**, автоматический сбор реальных наблюдений с 15 популярных agent-фреймворков на бесплатном провайдере Groq (LangChain, CrewAI, AG2, LlamaIndex, LangGraph, Haystack, CAMEL-AI, Griptape, Agno, Pydantic AI, DSPy, Atomic Agents, txtai, plus smolagents и Google ADK, уже бесплатные по умолчанию), с авто-обнаружением новых фреймворков и запуском по расписанию через GitHub Actions
 - [x] v0.7.2: `EvidenceStore` получил `execution_status` и `duration_seconds`. Исправляет баг: история для `predictability` хранилась только в памяти процесса и терялась между запусками CI
 - [x] v0.7.2: `has_ledger` больше не выставляется в `True` только потому, что лог агента был захвачен. Честный дефолт `False`, явный параметр для подтверждённых случаев
-- [x] v0.7.2: Framework Evaluation smoke-тест в основном CI, 12 тестов на механику пайплайна без установки всех 14 реальных библиотек
-- [x] v0.7.3: исправлена миграция схемы `EvidenceStore` — файлы базы со старой схемой (например, восстановленные из кэша GitHub Actions) теперь получают недостающие колонки автоматически, а не падают с `sqlite3.OperationalError`
+- [x] v0.7.2: Framework Evaluation smoke-тест в основном CI, 12 тестов на механику пайплайна без установки всех 15 реальных библиотек
+- [x] v0.7.3: исправлена миграция схемы `EvidenceStore`. Файлы базы со старой схемой (например, восстановленные из кэша GitHub Actions) теперь получают недостающие колонки автоматически, а не падают с `sqlite3.OperationalError`
 - [ ] v0.8: Evolution/Mutation как предложение, требующее подтверждения человеком, не реализовано даже как прототип
 - [ ] v0.8: реальная Incident Correlation на настоящих production-данных, накопленных через EvidenceStore
 - [ ] v0.8: формальный Evaluation Protocol (EP-001..EP-00N с input, ground truth, metric, threshold, CI на каждый)
+- [ ] v0.8: Adversarial Evaluation Suite, активное зондирование агента (токсичные промпты, пустые файлы, симулированные атаки) до продакшена, чтобы `data_safety`/`bias_control` выводились из результата стресс-теста, а не только из пассивного наблюдения за логом обычной работы, как сейчас делает `genome_from_capture.py`. Отличается от Perturbation Tests (следующий пункт) тем, что происходит один раз до деплоя, а не постоянно на продакшен-трафике
 - [ ] v0.8: предиктивная валидность (Trust Score(t) → вероятность инцидента в будущем, ROC-AUC, Brier Score)
 - [ ] v0.8: веб-калькулятор на prizolov.ru
 - [ ] v0.8: Genome Ledger как публичный сервис, сейчас только локальный in-memory прототип
