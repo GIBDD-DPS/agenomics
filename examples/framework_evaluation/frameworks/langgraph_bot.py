@@ -1,7 +1,6 @@
 """
-Шаблон под LangGraph (v1.0 API, проверено 2026). В отличие от простого
-LangChain-агента, здесь показан именно граф - то, что отличает LangGraph
-как отдельный инструмент: узлы, ребра, условная маршрутизация.
+Шаблон под LangGraph, переведён на Groq (бесплатный провайдер).
+Требует пакет langchain-groq и переменную окружения GROQ_API_KEY.
 """
 
 DOMAIN = "content"
@@ -10,9 +9,9 @@ AUTONOMY = "advisory"
 
 def run():
     from langgraph.graph import StateGraph, MessagesState, START, END
-    from langchain_openai import ChatOpenAI
+    from langchain_groq import ChatGroq
 
-    model = ChatOpenAI(model="gpt-4o-mini")  # замените на вашу модель
+    model = ChatGroq(model="llama-3.3-70b-versatile")
 
     def call_model(state: MessagesState):
         response = model.invoke(state["messages"])
