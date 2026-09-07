@@ -1,5 +1,6 @@
 """
-Шаблон под Atomic Agents, проверено по актуальной документации (v2.10.x), 2026.
+Шаблон под Atomic Agents, переведён на Groq (бесплатный провайдер, через
+instructor.from_groq()). Требует пакет groq и переменную GROQ_API_KEY.
 """
 
 DOMAIN = "content"
@@ -8,7 +9,7 @@ AUTONOMY = "advisory"
 
 def run():
     import instructor
-    from openai import OpenAI
+    from groq import Groq
     from atomic_agents import AtomicAgent, AgentConfig, BasicChatInputSchema, BaseIOSchema
     from atomic_agents.context import SystemPromptGenerator, ChatHistory
     from pydantic import Field
@@ -21,17 +22,17 @@ def run():
         background=["Ты полезный ассистент."],
     )
 
-    client = instructor.from_openai(OpenAI())  # замените на вашу модель/провайдера
+    client = instructor.from_groq(Groq())
 
     agent = AtomicAgent[BasicChatInputSchema, CustomOutputSchema](
         config=AgentConfig(
             client=client,
-            model="gpt-4o-mini",
+            model="llama-3.3-70b-versatile",
             system_prompt_generator=system_prompt_generator,
             history=ChatHistory(),
         )
     )
 
-    response = agent.run(BasicChatInputSchema(chat_message="Что такое Atomic Agents?"))  # замените на вашу задачу
+    response = agent.run(BasicChatInputSchema(chat_message="Что такое Atomic Agents?"))
     print(response.chat_message)
     return response
