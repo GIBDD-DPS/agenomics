@@ -91,12 +91,20 @@ def run_framework_and_record(
     started_at = datetime.now(timezone.utc)
     start_perf = time.perf_counter()
     status = "success"
+    error_summary = None
 
     try:
         with contextlib.redirect_stdout(stream):
             run_fn()
-    except Exception:
+    except Exception as exc:
         status = "error"
+        # Раньше текст исключения нигде не сохранялся, инцидент содержал
+        # только шаблонное "исключение при выполнении" без единой детали.
+        # Найдено при разборе первого прогона всех 29 фреймворков: было
+        # невозможно понять, упал ли фреймворк из-за отсутствия
+        # OPENAI_API_KEY, ImportError или чего-то ещё. Обрезаем до 300
+        # символов, чтобы длинный traceback не раздувал Incident.description.
+        error_summary = f"{type(exc).__name__}: {exc}"[:300]
     finally:
         for name in loggers:
             logging.getLogger(name).removeHandler(handler)
@@ -124,7 +132,7 @@ def run_framework_and_record(
     incidents = []
     if status == "error":
         incidents.append(Incident(
-            description=f"Framework {framework}: исключение при выполнении",
+            description=f"Framework {framework}: {error_summary}",
             severity=IncidentSeverity.SEVERE, category=IncidentCategory.OTHER,
             source=IncidentSource.AUTOMATED_MONITOR, confirmed=True,
         ))
