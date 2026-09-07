@@ -17,7 +17,7 @@ def run():
         return datetime.today().isoformat()
 
     agent = Agent(
-        model="groq/llama-3.3-70b-versatile",
+        model="groq/openai/gpt-oss-20b",
         tools=[today, "websearch"],
         max_iterations=5,
     )
