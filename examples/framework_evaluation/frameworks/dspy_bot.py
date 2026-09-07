@@ -10,7 +10,7 @@ AUTONOMY = "advisory"
 def run():
     import dspy
 
-    dspy.configure(lm=dspy.LM("groq/llama-3.3-70b-versatile"))
+    dspy.configure(lm=dspy.LM("groq/openai/gpt-oss-20b"))
 
     def get_weather(city: str) -> str:
         """Get the current weather for a city."""
