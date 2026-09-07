@@ -20,7 +20,7 @@ def run():
     async def _run():
         agent = FunctionAgent(
             tools=[FunctionTool.from_defaults(fn=get_weather)],
-            llm=Groq(model="llama-3.3-70b-versatile"),
+            llm=Groq(model="openai/gpt-oss-20b"),
             system_prompt="You are a helpful AI assistant.",
         )
         response = await agent.run("Какая погода в Париже?")
