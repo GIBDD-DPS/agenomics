@@ -1,6 +1,6 @@
 """
-Шаблон под CrewAI (проверено по актуальной документации, 2026).
-Пример: исследователь + райтер. Замените роли/задачи на свои реальные.
+Шаблон под CrewAI, переведён на Groq (бесплатный провайдер, через litellm).
+Требует переменную окружения GROQ_API_KEY.
 """
 
 DOMAIN = "content"
@@ -14,14 +14,14 @@ def run():
         role="Senior Research Analyst",
         goal="Найти последние разработки в области ИИ-агентов",
         backstory="Вы опытный аналитик индустрии.",
-        llm="gpt-4o-mini",  # замените на вашу модель
+        llm="groq/llama-3.3-70b-versatile",
     )
 
     writer = Agent(
         role="Tech Writer",
         goal="Превратить заметки исследования в краткую сводку",
         backstory="Вы пишете четко для инженеров.",
-        llm="gpt-4o-mini",
+        llm="groq/llama-3.3-70b-versatile",
     )
 
     research_task = Task(
