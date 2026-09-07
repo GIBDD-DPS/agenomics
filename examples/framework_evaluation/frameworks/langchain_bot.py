@@ -15,7 +15,7 @@ def run():
         return f"It's always sunny in {city}!"
 
     agent = create_agent(
-        model="groq:llama-3.3-70b-versatile",
+        model="groq:openai/gpt-oss-20b",
         tools=[get_weather],
         system_prompt="You are a helpful assistant",
     )
