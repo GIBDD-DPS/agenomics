@@ -1,7 +1,6 @@
 """
-Шаблон под AG2 (бывший AutoGen, пакет теперь называется ag2/pyautogen).
-ВНИМАНИЕ: если вы используете именно оригинальный Microsoft AutoGen
-(pyautogen до форка 2024 года) - синтаксис другой, дайте знать отдельно.
+Шаблон под AG2 (бывший AutoGen), переведён на Groq (бесплатный провайдер).
+Требует переменную окружения GROQ_API_KEY.
 """
 
 DOMAIN = "content"
@@ -9,9 +8,14 @@ AUTONOMY = "advisory"
 
 
 def run():
+    import os
     from autogen import ConversableAgent, LLMConfig
 
-    llm_config = LLMConfig({"api_type": "openai", "model": "gpt-4o-mini"})
+    llm_config = LLMConfig({
+        "api_type": "groq",
+        "model": "llama-3.3-70b-versatile",
+        "api_key": os.environ.get("GROQ_API_KEY"),
+    })
 
     agent = ConversableAgent(
         name="assistant",
