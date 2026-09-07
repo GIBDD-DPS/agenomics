@@ -12,7 +12,7 @@ def run():
     from pydantic_ai import Agent
 
     agent = Agent(
-        "groq:llama-3.3-70b-versatile",
+        "groq:openai/gpt-oss-20b",
         instructions="Be concise, reply with one sentence.",
     )
 
