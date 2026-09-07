@@ -17,7 +17,7 @@ def run():
         chat_generator=OpenAIChatGenerator(
             api_key=Secret.from_env_var("GROQ_API_KEY"),
             api_base_url="https://api.groq.com/openai/v1",
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-20b",
         ),
         system_prompt="You are a helpful assistant.",
         tools=[],
