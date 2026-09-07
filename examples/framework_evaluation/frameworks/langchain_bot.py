@@ -1,6 +1,6 @@
 """
-Шаблон под LangChain (актуальный API create_agent, LangChain v1, 2026).
-Задача-пример ("погода в Сан-Франциско") - замените на вашу реальную.
+Шаблон под LangChain, переведён на Groq (бесплатный провайдер, без карты).
+Требует переменную окружения GROQ_API_KEY.
 """
 
 DOMAIN = "content"
@@ -15,8 +15,8 @@ def run():
         return f"It's always sunny in {city}!"
 
     agent = create_agent(
-        model="openai:gpt-4o-mini",  # замените на вашу модель
-        tools=[get_weather],          # замените на ваши реальные инструменты
+        model="groq:llama-3.3-70b-versatile",
+        tools=[get_weather],
         system_prompt="You are a helpful assistant",
     )
 
