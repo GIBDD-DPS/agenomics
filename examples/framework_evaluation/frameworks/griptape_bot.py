@@ -1,5 +1,10 @@
 """
-Шаблон под Griptape (проверено по актуальной документации, 2026).
+Шаблон под Griptape, переведён на Groq (бесплатный провайдер, через
+OpenAI-совместимый эндпоинт api.groq.com). Требует GROQ_API_KEY.
+
+Раньше этот шаблон уже успешно отрабатывал на OpenAI, это не смена
+"проблемного" шаблона на рабочий, а перевод рабочего шаблона на
+бесплатный провайдер, чтобы не тратить платные токены в CI.
 """
 
 DOMAIN = "content"
@@ -7,13 +12,18 @@ AUTONOMY = "advisory"
 
 
 def run():
+    import os
     from griptape.drivers.prompt.openai import OpenAiChatPromptDriver
     from griptape.structures import Agent
 
     agent = Agent(
-        prompt_driver=OpenAiChatPromptDriver(model="gpt-4o-mini"),  # замените на вашу модель
+        prompt_driver=OpenAiChatPromptDriver(
+            model="llama-3.3-70b-versatile",
+            api_key=os.environ.get("GROQ_API_KEY"),
+            base_url="https://api.groq.com/openai/v1",
+        ),
     )
 
-    agent.run("Что такое Griptape в двух предложениях?")  # замените на вашу реальную задачу
+    agent.run("Что такое Griptape в двух предложениях?")
     print("Answer:", agent.output)
     return agent.output
