@@ -1,6 +1,14 @@
 """
 Шаблон под CrewAI, переведён на Groq (бесплатный провайдер, через litellm).
 Требует переменную окружения GROQ_API_KEY.
+
+ИЗВЕСТНАЯ ПРОБЛЕМА (не исправима на нашей стороне): в CrewAI открыт баг
+github.com/crewAIInc/crewAI/issues/5886 - cache_breakpoint добавляется
+во все сообщения независимо от провайдера, но снимается только для
+Anthropic. Groq и другие OpenAI-совместимые провайдеры отклоняют
+запрос с этим полем. Если это всё ещё воспроизводится - смотрите
+статус issue, возможно, обновление CrewAI уже решило это к моменту
+вашего запуска.
 """
 
 DOMAIN = "content"
@@ -14,14 +22,14 @@ def run():
         role="Senior Research Analyst",
         goal="Найти последние разработки в области ИИ-агентов",
         backstory="Вы опытный аналитик индустрии.",
-        llm="groq/llama-3.3-70b-versatile",
+        llm="groq/openai/gpt-oss-20b",
     )
 
     writer = Agent(
         role="Tech Writer",
         goal="Превратить заметки исследования в краткую сводку",
         backstory="Вы пишете четко для инженеров.",
-        llm="groq/llama-3.3-70b-versatile",
+        llm="groq/openai/gpt-oss-20b",
     )
 
     research_task = Task(
