@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.9", "3.11", "3.12"]
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
 
     steps:
       - uses: actions/checkout@v4
@@ -33,3 +33,8 @@ jobs:
       - name: Run benchmark suite
         run: |
           PYTHONPATH=. python3 -m benchmark.run_benchmark
+
+      - name: Framework Evaluation smoke test
+        run: |
+          cd examples/framework_evaluation
+          PYTHONPATH=../../ python3 test_pipeline.py
