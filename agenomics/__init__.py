@@ -6,7 +6,7 @@ Agenomics. Genetics for AI Agents.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.7.3
+Версия: 0.7.4
 
 Формальная спецификация уровней конвейера (Genome → Genome Schema →
 Phenotype → Trust Model → Compatibility Model → Drift Model →
@@ -37,6 +37,7 @@ from .heatmap import CompatibilityMatrix, build_compatibility_matrix, render_hea
 from .extractor import PromptToGenomeExtractor, ExtractionError
 from .evaluation import RealWorldEvaluationLayer, Observation, TrustRealityReport
 from .evidence import EvidenceStore, StoredObservation, replay_into_evaluation_layer, AEP_SCHEMA_VERSION
+from .hooks import EvidenceStoreHook
 from .reports import trust_report, compatibility_report, trust_report_docx
 
 __all__ = [
@@ -57,7 +58,8 @@ __all__ = [
     "PromptToGenomeExtractor", "ExtractionError",
     "RealWorldEvaluationLayer", "Observation", "TrustRealityReport",
     "EvidenceStore", "StoredObservation", "replay_into_evaluation_layer", "AEP_SCHEMA_VERSION",
+    "EvidenceStoreHook",
     "trust_report", "compatibility_report", "trust_report_docx",
 ]
 
-__version__ = "0.7.3"
+__version__ = "0.7.4"
