@@ -1,11 +1,10 @@
 """
-test_v04_modules.py — тесты 7 новых модулей v0.4:
+test_v04_modules.py. Тесты 7 модулей v0.4:
 Drift Monitor, Incident Feedback, Genome Ledger, Genome Matchmaker,
 Chain Risk Aggregator, Prompt-to-Genome Extractor, Reports.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.4.0
 """
 
 from datetime import datetime, timedelta, timezone
@@ -115,6 +114,31 @@ def test_ledger_same_genome_produces_same_hash():
     entry_a = ledger.record(genome_a, TrustScorer().score(genome_a))
     entry_b = ledger.record(genome_b, TrustScorer().score(genome_b))
     assert entry_a.genome_hash == entry_b.genome_hash  # детерминированный хэш
+
+
+def test_ledger_hash_covers_axis_confidence():
+    """Регрессионный тест на реальный баг: _genome_hash() раньше был
+    вручную поддерживаемым списком полей и не включал axis_confidence,
+    accountability_override, tier_override (добавленные в AgentGenome
+    позже исходной версии функции). Два генома, различающихся только
+    этими полями, получали одинаковый хэш, честная находка внешнего
+    разбора. Теперь хэш строится по всем полям датакласса автоматически."""
+    genome_a = AgentGenome(id="same", bias_control=80, data_safety=90)
+    genome_b = AgentGenome(id="same", bias_control=80, data_safety=90,
+                            axis_confidence={"bias_control": 0.3})
+    ledger = GenomeLedger()
+    entry_a = ledger.record(genome_a, TrustScorer().score(genome_a))
+    entry_b = ledger.record(genome_b, TrustScorer().score(genome_b))
+    assert entry_a.genome_hash != entry_b.genome_hash
+
+
+def test_ledger_hash_covers_accountability_override():
+    genome_a = AgentGenome(id="same", bias_control=80)
+    genome_b = AgentGenome(id="same", bias_control=80, accountability_override=95)
+    ledger = GenomeLedger()
+    entry_a = ledger.record(genome_a, TrustScorer().score(genome_a))
+    entry_b = ledger.record(genome_b, TrustScorer().score(genome_b))
+    assert entry_a.genome_hash != entry_b.genome_hash
 
 
 def test_ledger_entries_for_filters_by_agent():
