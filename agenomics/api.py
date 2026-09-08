@@ -1,9 +1,9 @@
 """
-api.py — минимальный веб-API методологии Agenomics.
+api.py. Минимальный веб-API методологии Agenomics.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.3.0
+Версия: 0.7.4
 
 Оборачивает уже протестированные TrustScorer и CompatibilityScorer
 (см. trust_score.py, compatibility.py и соответствующие тесты) в
@@ -50,10 +50,10 @@ from .trust_score import AgentGenome, Autonomy, ImpactTier, TrustScorer
 app = FastAPI(
     title="Agenomics API",
     description=(
-        "Genetics for AI Agents — Trust Score и Compatibility Score для "
+        "Genetics for AI Agents. Trust Score и Compatibility Score для "
         "автономных ИИ-агентов. Методология: см. docs/METHODOLOGY.md в репозитории."
     ),
-    version="0.3.0",
+    version="0.7.4",
 )
 
 _default_scorer = TrustScorer()
@@ -66,7 +66,7 @@ class GenomeRequest(BaseModel):
         None, description="Домен агента, напр. 'finance', 'support', 'content'"
     )
     domains: Optional[List[str]] = Field(
-        None, description="Список доменов, если агент затрагивает несколько — Tier берётся максимальный"
+        None, description="Список доменов, если агент затрагивает несколько, Tier берётся максимальный"
     )
     autonomy: str = Field(
         "advisory", description="'advisory' (только советует) или 'autonomous' (действует сам)"
@@ -173,14 +173,14 @@ def _to_genome(payload: GenomeRequest) -> AgentGenome:
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "service": "agenomics-api", "version": "0.3.0"}
+    return {"status": "ok", "service": "agenomics-api", "version": "0.7.4"}
 
 
 @app.get("/")
 def root() -> dict:
     return {
         "name": "Agenomics API",
-        "description": "Genetics for AI Agents — Trust Score & Compatibility Score methodology.",
+        "description": "Genetics for AI Agents. Trust Score and Compatibility Score methodology.",
         "endpoints": {
             "POST /score": "Рассчитать Trust Score для генома агента",
             "POST /compatibility": "Рассчитать совместимость 2+ агентов в команде",
