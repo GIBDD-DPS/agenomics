@@ -5,13 +5,7 @@ hooks.py. Готовая реализация AgentLifecycleHook поверх Ev
 
 Контекст: интерфейс AgentLifecycleHook (docs/PRIZOLOV_BRIDGE_INTERFACE.md)
 описывает, что внешний оркестратор мог бы вызывать на разных этапах
-жизненного цикла агента. У нас нет реальных сигнатур Metrics_Agent,
-Trace_Collector, Trigger из Prizolov Market, поэтому сторону вызова
-построить честно нельзя. Но сторона приёма (что происходит внутри
-Agenomics, когда её вызывают) не зависит от внутреннего устройства
-внешней системы вообще, только от того, что три метода будут вызваны
-в подходящие моменты. EvidenceStoreHook реализует именно эту сторону,
-полностью реальным, протестированным кодом.
+жизненного цикла агента.
 
 Использование (когда сигнатуры Prizolov Market появятся, интеграция
 сведётся к трём вызовам в нужных местах вашего оркестратора):
@@ -48,23 +42,37 @@ class EvidenceStoreHook:
         см. GenomeLedger)."""
         self._last_genome_hash[agent_id] = genome_hash
 
-    def on_trust_scored(self, agent_id: str, result: TrustResult) -> int:
-        """Пишет наблюдение в EvidenceStore. Возвращает id записи."""
+    def on_trust_scored(self, agent_id: str, result: TrustResult, genome_hash: Optional[str] = None) -> int:
+        """Пишет наблюдение в EvidenceStore. Возвращает id записи.
+
+        genome_hash можно передать явно, если он у вас уже есть на
+        момент вызова, это надёжнее, чем полагаться на транзиентный
+        кэш из on_genome_extracted(): если процесс перезапустится между
+        двумя вызовами, кэш обнулится, и связь Genome -> Trust Observation
+        потеряется. Честная находка внешнего разбора, тот же класс
+        бага, что был найден и исправлен в full_pipeline.py для истории
+        predictability. Если genome_hash не передан, используется
+        последнее значение из on_genome_extracted() в этом же процессе
+        (обратная совместимость)."""
+        resolved_hash = genome_hash if genome_hash is not None else self._last_genome_hash.get(agent_id)
         return self._store.record_observation(
             agent_id=agent_id,
             declared_score=result.score,
             declared_label=result.label,
             declared_confidence=result.confidence,
-            genome_hash=self._last_genome_hash.get(agent_id),
+            genome_hash=resolved_hash,
             collector=self._collector,
             source=self._source,
             timestamp=datetime.now(timezone.utc),
         )
 
-    def on_drift_alert(self, agent_id: str, report: DriftReportV2) -> int:
+    def on_drift_alert(self, agent_id: str, report: DriftReportV2, genome_hash: Optional[str] = None) -> int:
         """Пишет наблюдение с прикреплённым инцидентом уровня SEVERE,
         если severity критичный ('severe' или 'sudden'), иначе MODERATE.
-        Возвращает id записи."""
+        Возвращает id записи.
+
+        genome_hash: см. пояснение в on_trust_scored() выше, тот же
+        принцип."""
         severity = (
             IncidentSeverity.SEVERE if report.severity in ("severe", "sudden")
             else IncidentSeverity.MODERATE
@@ -81,12 +89,13 @@ class EvidenceStoreHook:
         # отчёты (alert=False для insufficient_data), но проверяем явно,
         # чтобы не записать в EvidenceStore нечисловой declared_score.
         declared_score = report.ewma if report.ewma is not None else 0.0
+        resolved_hash = genome_hash if genome_hash is not None else self._last_genome_hash.get(agent_id)
         return self._store.record_observation(
             agent_id=agent_id,
             declared_score=declared_score,
             declared_label="Conditional" if severity == IncidentSeverity.MODERATE else "High Risk",
             declared_confidence="Low",
-            genome_hash=self._last_genome_hash.get(agent_id),
+            genome_hash=resolved_hash,
             collector=self._collector,
             source=self._source,
             incidents=[incident],
