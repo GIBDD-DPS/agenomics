@@ -201,8 +201,6 @@ print(report.correlation)  # реальная, не синтетическая �
 
 Это первая инфраструктура, делающая метрику **Incident Correlation** из
 [`benchmark/`](benchmark/README.md) вычислимой на настоящих данных.
-Раньше она была принципиально `not_computable` из-за отсутствия
-единой точки сбора.
 
 ### Evidence Store (v0.7.0). Персистентность поверх Real-World Evaluation Layer
 
