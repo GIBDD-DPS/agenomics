@@ -69,6 +69,30 @@ def test_severe_drift_maps_to_severe_incident():
     assert obs.incidents[0]["severity"] == expected_severity
 
 
+def test_explicit_genome_hash_survives_simulated_process_restart():
+    """Регрессионный тест на реальную находку внешнего разбора:
+    _last_genome_hash был чисто in-memory кэшем, терялся при
+    перезапуске процесса между on_genome_extracted() и on_trust_scored().
+    Теперь genome_hash можно передать явно, минуя кэш."""
+    store = EvidenceStore(":memory:")
+
+    # 'Новый процесс' - свежий hook, кэш пуст, on_genome_extracted() не вызывался
+    hook = EvidenceStoreHook(store)
+    hook.on_trust_scored("agent-1", _make_result(), genome_hash="from-caller-directly")
+
+    obs = store.get_observations("agent-1")[0]
+    assert obs.genome_hash == "from-caller-directly"
+
+
+def test_explicit_genome_hash_overrides_cache():
+    store = EvidenceStore(":memory:")
+    hook = EvidenceStoreHook(store)
+    hook.on_genome_extracted("agent-1", genome_hash="cached-value")
+    hook.on_trust_scored("agent-1", _make_result(), genome_hash="explicit-value")
+    obs = store.get_observations("agent-1")[0]
+    assert obs.genome_hash == "explicit-value"  # явный параметр важнее кэша
+
+
 def test_source_and_collector_are_recorded():
     store = EvidenceStore(":memory:")
     hook = EvidenceStoreHook(store, collector="my_orchestrator", source="agent-fleet-1")
