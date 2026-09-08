@@ -4,12 +4,10 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Status](https://img.shields.io/badge/status-v0.7.3-orange.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-v0.7.4-orange.svg)](CHANGELOG.md)
 [![PyPI](https://img.shields.io/badge/PyPI-agenomics-blue.svg)](https://pypi.org/project/agenomics/)
 
-> **Автор**: Dm.Andreyanov
-> **Версия**: 0.7.3
-> **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
+> **Автор**: Dm.Andreyanov **Версия**: 0.7.4 **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
 >
 > 📐 Формальная спецификация конвейера (Genome → Genome Schema → Phenotype
 > → Trust Model → Compatibility Model → Drift Model → Observed Behaviour
@@ -18,6 +16,12 @@
 > с валидацией против реальных инцидентов: [`benchmark/README.md`](benchmark/README.md).
 > 🚀 Хотите подключить реального агента и начать собирать данные для
 > Incident Correlation? Гайд на 15 минут: [`docs/CONNECT_YOUR_AGENTS.md`](docs/CONNECT_YOUR_AGENTS.md).
+> 🔌 Шаблоны-адаптеры для 15 популярных agent-фреймворков на бесплатном
+> провайдере (LangChain, CrewAI, AG2, LlamaIndex, Griptape и других)
+> с авто-обнаружением и запуском по расписанию:
+> [`examples/framework_evaluation/`](examples/framework_evaluation/README.md).
+> Наличие адаптера не означает гарантированную production-совместимость
+> со всеми 15. Это отправная точка для сбора реальных наблюдений, не готовая интеграция.
 >
 > ⚠️ Методология следует **semver 0.x**. До релиза `1.0.0` обратная
 > совместимость API не гарантируется между minor-версиями. Между 0.2 и 0.3
@@ -201,6 +205,8 @@ print(report.correlation)  # реальная, не синтетическая �
 
 Это первая инфраструктура, делающая метрику **Incident Correlation** из
 [`benchmark/`](benchmark/README.md) вычислимой на настоящих данных.
+Раньше она была принципиально `not_computable` из-за отсутствия
+единой точки сбора.
 
 ### Evidence Store (v0.7.0). Персистентность поверх Real-World Evaluation Layer
 
@@ -221,6 +227,23 @@ print(layer.trust_reality_report("support-bot"))
 `EvidenceStore` не заменяет `RealWorldEvaluationLayer`, а дополняет его
 персистентностью, которой ему честно не хватало с v0.6.0. Схема хранения
 следует протоколу [`AEP-001`](docs/AEP-001.md).
+
+### EvidenceStoreHook (v0.7.4). Готовая приёмная сторона для внешних интеграций
+
+```python
+from agenomics import EvidenceStore, EvidenceStoreHook
+
+hook = EvidenceStoreHook(EvidenceStore("agenomics_evidence.db"), source="my-orchestrator")
+
+# Вызывайте эти три метода в нужных местах вашего собственного пайплайна:
+hook.on_genome_extracted(agent_id, genome_hash="...")
+hook.on_trust_scored(agent_id, result)
+if drift_report.alert:
+    hook.on_drift_alert(agent_id, drift_report)
+```
+
+Не требует знания о внутреннем устройстве вызывающей системы, только
+чтобы её три метода вызывали в подходящие моменты.
 
 ### Confidence на уровне гена (v0.7.1)
 
@@ -385,6 +408,7 @@ agenomics/
 │   ├── evidence.py             # Evidence Store, персистентность на SQLite, схема AEP-001
 │   ├── per_axis_drift.py         # Per-Axis Drift Monitor (v0.7.1)
 │   ├── heatmap.py                 # Team Compatibility Heatmap (v0.7.1)
+│   ├── hooks.py                    # EvidenceStoreHook, приёмная сторона внешних интеграций (v0.7.4)
 │   ├── drift.py                # Drift Monitor
 │   ├── feedback.py              # Incident Feedback Loop
 │   ├── ledger.py                  # Genome Ledger
@@ -399,7 +423,7 @@ agenomics/
 │                              # репо-инструмент, не входит в pip-пакет, см. benchmark/README.md
 ├── prompts/                 # системные промпты (Trust Auditor и др.)
 ├── docs/                     # SPECIFICATION.md, METHODOLOGY.md, AEP-001.md
-├── tests/                     # тесты (148+)
+├── tests/                     # тесты (162+, плюс 7 в test_api.py)
 ├── .github/workflows/          # CI, тесты и smoke-тест запускаются на каждый push/PR
 ├── amvera.yml                   # конфиг деплоя веб-API на Amvera
 ├── requirements.txt               # зависимости для запуска репозитория (тесты, FastAPI, uvicorn)
@@ -470,6 +494,10 @@ Python. `requirements.txt` нужен для запуска этого репо�
 - [x] v0.7.2: `has_ledger` больше не выставляется в `True` только потому, что лог агента был захвачен. Честный дефолт `False`, явный параметр для подтверждённых случаев
 - [x] v0.7.2: Framework Evaluation smoke-тест в основном CI, 12 тестов на механику пайплайна без установки всех 15 реальных библиотек
 - [x] v0.7.3: исправлена миграция схемы `EvidenceStore`. Файлы базы со старой схемой (например, восстановленные из кэша GitHub Actions) теперь получают недостающие колонки автоматически, а не падают с `sqlite3.OperationalError`
+- [x] v0.7.4: `EvidenceStoreHook` (`agenomics/hooks.py`), готовая реализация приёмной стороны интерфейса внешних интеграций из `docs/PRIZOLOV_BRIDGE_INTERFACE.md`
+- [x] v0.7.4: `agenomics/api.py` синхронизирован с версией пакета (не обновлялась с v0.3.0), добавлены smoke-тесты `tests/test_api.py`
+- [x] v0.7.4: `amvera.yml`, убран устаревший комментарий «веб-API ещё не реализован»
+- [x] v0.7.4: `docs/AEP-001.md` и `docs/PRIZOLOV_BRIDGE_INTERFACE.md` пересинхронизированы с GitHub (были заявлены как добавленные в v0.7.1, но фактически отсутствовали в репозитории)
 - [ ] v0.8: Evolution/Mutation как предложение, требующее подтверждения человеком, не реализовано даже как прототип
 - [ ] v0.8: реальная Incident Correlation на настоящих production-данных, накопленных через EvidenceStore
 - [ ] v0.8: формальный Evaluation Protocol (EP-001..EP-00N с input, ground truth, metric, threshold, CI на каждый)
