@@ -1,13 +1,17 @@
 # 🧬 Agenomics
 
-**Genetics for AI Agents. Predictability and compatibility scoring for autonomous agent personalities.**
+**Make AI Agent Trust Testable.**
+
+Evaluate AI Agents. Build Real-World Evidence.
+
+Genetics for AI Agents. Predictability and compatibility scoring for autonomous agent personalities, это механизм. Реальные данные, это цель.
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Status](https://img.shields.io/badge/status-v0.7.4-orange.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-v0.7.5-orange.svg)](CHANGELOG.md)
 [![PyPI](https://img.shields.io/badge/PyPI-agenomics-blue.svg)](https://pypi.org/project/agenomics/)
 
-> **Автор**: Dm.Andreyanov **Версия**: 0.7.4 **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
+> **Автор**: Dm.Andreyanov **Версия**: 0.7.5 **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
 >
 > 📐 Формальная спецификация конвейера (Genome → Genome Schema → Phenotype
 > → Trust Model → Compatibility Model → Drift Model → Observed Behaviour
@@ -20,6 +24,8 @@
 > провайдере (LangChain, CrewAI, AG2, LlamaIndex, Griptape и других)
 > с авто-обнаружением и запуском по расписанию:
 > [`examples/framework_evaluation/`](examples/framework_evaluation/README.md).
+> Наличие адаптера не означает гарантированную production-совместимость
+> со всеми 15. Это отправная точка для сбора реальных наблюдений, не готовая интеграция.
 >
 > ⚠️ Методология следует **semver 0.x**. До релиза `1.0.0` обратная
 > совместимость API не гарантируется между minor-версиями. Между 0.2 и 0.3
@@ -370,6 +376,17 @@ extractor = PromptToGenomeExtractor(llm_call=call_my_llm)
 genome = extractor.extract(agent_id="support-bot", system_prompt="...")
 ```
 
+Для полного evidence по каждой оси (конкретная цитата из промпта и
+уверенность LLM в этой оценке, не только число) используйте
+`extract_with_evidence()` (v0.7.5):
+
+```python
+result = extractor.extract_with_evidence(agent_id="support-bot", system_prompt="...")
+print(result.genome.transparency)               # 75
+print(result.evidence["transparency"].evidence)  # цитата из промпта, обосновывающая оценку
+print(result.evidence["transparency"].confidence) # 0.8, уверенность LLM именно в этой оси
+```
+
 ### Reports. Готовые отчёты (Markdown и Word)
 
 ```python
@@ -427,6 +444,7 @@ agenomics/
 ├── requirements.txt               # зависимости для запуска репозитория (тесты, FastAPI, uvicorn)
 ├── pyproject.toml                  # метаданные пакета для PyPI (ядро без внешних зависимостей)
 ├── CHANGELOG.md                     # история версий
+├── SECURITY.md                       # политика безопасности, известные ограничения
 └── CONTRIBUTING.md                   # как предложить изменения
 ```
 
@@ -496,6 +514,13 @@ Python. `requirements.txt` нужен для запуска этого репо�
 - [x] v0.7.4: `agenomics/api.py` синхронизирован с версией пакета (не обновлялась с v0.3.0), добавлены smoke-тесты `tests/test_api.py`
 - [x] v0.7.4: `amvera.yml`, убран устаревший комментарий «веб-API ещё не реализован»
 - [x] v0.7.4: `docs/AEP-001.md` и `docs/PRIZOLOV_BRIDGE_INTERFACE.md` пересинхронизированы с GitHub (были заявлены как добавленные в v0.7.1, но фактически отсутствовали в репозитории)
+- [x] v0.7.5: `agenomics/ledger.py`, `_genome_hash()` исправлен на охват всех полей `AgentGenome` автоматически. Раньше вручную поддерживаемый список полей пропускал `axis_confidence`/`accountability_override`/`tier_override`, из-за чего разные геномы могли получить одинаковый хэш
+- [x] v0.7.5: `EvidenceStoreHook.on_trust_scored()`/`on_drift_alert()` принимают `genome_hash` явным параметром, не полагаясь только на транзиентный in-memory кэш, теряющийся при перезапуске процесса
+- [x] v0.7.5: `PromptToGenomeExtractor.extract_with_evidence()`, структурированный evidence по каждой оси (цитата из промпта, confidence LLM), не просто число. `extract()` остаётся обратно совместимым
+- [x] v0.7.5: три состояния генома (Declared/Observed/Evaluated) формализованы в `docs/METHODOLOGY.md`, раздел 11
+- [x] v0.7.5: `tests/test_version_consistency.py`, автоматическая проверка синхронности версии между `pyproject.toml`/`agenomics/api.py`/`CHANGELOG.md`/`README.md`, предотвращает повторение бага с `api.py` на 0.3.0
+- [x] v0.7.5: `SECURITY.md`, `benchmark/BENCHMARKS.md` обновлён на текущую версию, Python 3.10 добавлен в тестовую matrix CI (заявлен в classifiers, но не тестировался)
+- [x] v0.7.5: главный заголовок README приведён к позиционированию Product Hunt («Make AI Agent Trust Testable»)
 - [ ] v0.8: Evolution/Mutation как предложение, требующее подтверждения человеком, не реализовано даже как прототип
 - [ ] v0.8: реальная Incident Correlation на настоящих production-данных, накопленных через EvidenceStore
 - [ ] v0.8: формальный Evaluation Protocol (EP-001..EP-00N с input, ground truth, metric, threshold, CI на каждый)
