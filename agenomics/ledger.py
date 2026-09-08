@@ -1,15 +1,15 @@
 """
-ledger.py — Genome Ledger методологии Agenomics.
+ledger.py. Genome Ledger методологии Agenomics.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.4.0
+Версия: 0.7.5
 
-Простой append-only реестр: хэш генома + результат аудита + дата.
-Локальная in-memory реализация — прототип публичного реестра
-верификации из roadmap. НЕ криптографически защищён от подмены
-(это не блокчейн) — просто цепочка хэшей для базовой целостности
-внутри одного процесса/файла.
+Простой append-only реестр: хэш генома, результат аудита, дата.
+Локальная in-memory реализация, прототип публичного реестра
+верификации из roadmap. Не криптографически защищён от подмены
+(это не блокчейн), просто цепочка хэшей для базовой целостности
+внутри одного процесса или файла.
 """
 
 import hashlib
@@ -22,17 +22,22 @@ from .trust_score import AgentGenome, TrustResult
 
 
 def _genome_hash(genome: AgentGenome) -> str:
-    """Детерминированный хэш генома — по значениям полей, не по id объекта в памяти."""
-    autonomy_value = genome.autonomy.value if hasattr(genome.autonomy, "value") else genome.autonomy
-    payload = {
-        "id": genome.id, "domain": genome.domain, "domains": genome.domains,
-        "autonomy": autonomy_value,
-        "transparency": genome.transparency, "bias_control": genome.bias_control,
-        "data_safety": genome.data_safety, "drift_rate": genome.drift_rate,
-        "has_ledger": genome.has_ledger, "role": genome.role,
-        "risk_tolerance": genome.risk_tolerance, "social_style": genome.social_style,
-    }
-    raw = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    """Детерминированный хэш генома, по всем полям датакласса, а не по
+    id объекта в памяти.
+
+    Раньше здесь был вручную поддерживаемый список полей, и он не
+    включал axis_confidence, accountability_override, tier_override,
+    которые появились в AgentGenome позже исходной версии этой функции.
+    Из-за этого два генома, различающихся только этими полями, получали
+    одинаковый хэш, честная находка внешнего разбора. Использование
+    dataclasses.asdict() автоматически охватывает любые текущие и
+    будущие поля AgentGenome, без необходимости обновлять эту функцию
+    при каждом новом поле."""
+    payload = asdict(genome)
+    raw = json.dumps(
+        payload, sort_keys=True, ensure_ascii=False,
+        default=lambda o: getattr(o, "value", str(o)),  # Enum -> .value, прочее -> str
+    )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -44,7 +49,7 @@ class LedgerEntry:
     label: str
     confidence: str
     timestamp: str
-    prev_hash: Optional[str] = None  # хэш предыдущей записи — цепочка целостности
+    prev_hash: Optional[str] = None  # хэш предыдущей записи, цепочка целостности
 
 
 class GenomeLedger:
@@ -73,7 +78,7 @@ class GenomeLedger:
     def verify_integrity(self) -> bool:
         """Проверяет непрерывность цепочки prev_hash. Обнаруживает случайное
         или намеренное удаление/перестановку записей внутри одного экземпляра
-        реестра — НЕ защищает от подмены самого файла/базы извне."""
+        реестра. Не защищает от подмены самого файла/базы извне."""
         for i in range(1, len(self._entries)):
             if self._entries[i].prev_hash != self._entries[i - 1].genome_hash:
                 return False
