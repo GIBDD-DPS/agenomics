@@ -4,6 +4,35 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/),
 версионирование: [Semantic Versioning](https://semver.org/) (0.x: API нестабилен).
 
+## [0.7.10] - 2026-09-09
+
+### Добавлено
+- **`agenomics/cli.py`**: минимальный командный интерфейс, 5 команд (`score`, `report`, `compatibility`, `evidence list`, `genome validate`), построенных поверх уже существующих функций, без новой логики специально для CLI. Точка входа `agenomics` зарегистрирована в `pyproject.toml` через `[project.scripts]`
+- **`pyproject.toml`**: добавлены extras `api` (fastapi, uvicorn), `dev` (pytest, httpx), `all` (все вместе), помимо уже существовавшего `docx`. `pip install agenomics[api]` теперь документированный путь установки вместо неявной зависимости от `requirements.txt`
+- 10 новых тестов (`tests/test_cli.py`, без зависимости от pytest, `io.StringIO`/`redirect_stdout` вместо `capsys`, тот же принцип самодостаточности, что и во всех остальных тестах проекта), итого 203/203
+
+### Исправлено
+- **Тире, пропущенные в предыдущих раундах чистки**: `AGENOMICS_ATTRIBUTION` (футер всех отчётов и API-ответов) и весь `agenomics/trust_score.py` (30+ вхождений, самый старый файл ядра, не попадал в чистку раньше). Найдено случайно при живом тестировании вывода нового CLI
+
+### Осознанно не реализовано в этом релизе
+- Unified `AgentEvaluation` объект, объединяющий genome/phenotype/trust/compatibility/drift/evidence/incidents в одну модель: обоснованная идея, но архитектурный редизайн, требующий аккуратного проектирования, чтобы не сломать существующие вызовы, не быстрая правка
+- Полный набор команд CLI (`audit`, `drift`, `evidence export` и т.д. из гипотетического списка): 5 реализованных команд покрывают то, что можно было построить прямо сейчас поверх существующих функций без выдумывания новой логики
+
+## [0.7.9] - 2026-09-09
+
+### Исправлено (найдено внешним разбором, повторно)
+- **`GenomeLedger`: цепочка целостности связывала записи только через `genome_hash`, не через хэш всей записи.** Изменение `score`/`label`/`confidence`/`timestamp` постфактум не обязательно ломало `verify_integrity()`, если сам геном не менялся. Указано внешним разбором дважды подряд. Исправлено: `entry_hash` теперь покрывает всю запись целиком (`prev_hash`, `genome_hash`, `agent_id`, `score`, `label`, `confidence`, `timestamp`), `prev_hash` ссылается на `entry_hash` предыдущей записи, а не на её `genome_hash`. `verify_integrity()` теперь пересчитывает хэш каждой записи из её текущих полей и сравнивает с сохранённым, обнаруживая подмену любого поля, не только генома
+- Регрессионный тест `test_ledger_detects_tampering_with_score_even_if_genome_hash_unchanged`, воспроизводящий точный сценарий из разбора
+
+### Уже реализовано ранее в этой ветке разработки (подтверждено, не новое)
+- `RealWorldEvaluationLayer.trust_reality_report()`: многоуровневая `evidence_strength` (`insufficient`/`exploratory`/`preliminary`/`validation_candidate`/`strong`) вместо бинарного `insufficient_data`/`computed`, реализовано и протестировано (`tests/test_evaluation.py`). На тот же вопрос внешнего разбора о честности порога `min_observations=10`
+
+### Осознанно не реализовано в этом релизе
+- Outcome Model (`Observation → Prediction → Outcome` с явным `prediction_target`), Temporal Holdout, baseline-сравнение: все три требуют реального объёма и временного разброса данных, которого пока нет (максимум 12 наблюдений на агента). Формальный дизайн этих трёх, а не код, следующий содержательный шаг, не преждевременная реализация вокруг пустоты
+- `EvidenceStore` distributed backend (PostgreSQL, idempotency keys, retention policy): та же причина, что и в предыдущих релизах, преждевременно для текущего масштаба использования
+- Строгая JSON Schema/Pydantic валидация `PromptToGenomeExtractor`: разумная идея, отдельный содержательный кусок работы, не вошла в этот релиз
+- Разделение Framework Evaluation CI на required/experimental с явной PASS/FAIL сводкой: разумная идея, не вошла в этот релиз
+
 ## [0.7.8] - 2026-09-09
 
 ### Исправлено
