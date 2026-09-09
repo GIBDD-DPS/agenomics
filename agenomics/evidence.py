@@ -112,6 +112,15 @@ class EvidenceStore:
     def __init__(self, db_path: str = "agenomics_evidence.db"):
         self.db_path = db_path
         self._conn = sqlite3.connect(db_path)
+        if db_path != ":memory:":
+            # WAL позволяет одному писателю и нескольким читателям работать
+            # одновременно без "database is locked", в отличие от дефолтного
+            # rollback journal. :memory: не поддерживает WAL вообще (нет
+            # файла для отдельного -wal лога), поэтому применяем только к
+            # файловым БД. Не решает проблему НЕСКОЛЬКИХ одновременных
+            # писателей полностью (они всё равно сериализуются), но это
+            # честно уже задокументированное ограничение, не новое.
+            self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.executescript(_SCHEMA_SQL)
         self._conn.commit()
         self._migrate_schema()
