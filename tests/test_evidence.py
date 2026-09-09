@@ -3,7 +3,7 @@ test_evidence.py. Тесты Evidence Store.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.7.3
+Версия: 0.7.6
 """
 
 import json
@@ -339,3 +339,52 @@ def test_migrates_old_schema_file_missing_new_columns():
         assert obs.execution_status == "success"
         assert obs.duration_seconds == 2.5
         store.close()
+
+
+# --- Тесты производительности (v0.7.6) --------------------------------
+
+def test_get_observations_uses_single_query_not_n_plus_one():
+    """Регрессионный тест на реальную находку: get_observations() делал
+    N+1 запрос (один за наблюдениями, затем отдельный за инцидентами на
+    каждое наблюдение в цикле). На 20000 наблюдениях это давало 315мс и
+    20001 отдельный запрос к SQLite. Теперь один JOIN-запрос, независимо
+    от количества наблюдений. Проверяем через execute tracing, а не
+    только по времени (время нестабильно между окружениями)."""
+    store = EvidenceStore(":memory:")
+    for i in range(50):
+        incidents = [Incident(f"incident {i}", IncidentSeverity.MINOR)] if i % 2 == 0 else []
+        store.record_observation("agent-1", declared_score=70.0, declared_label="Conditional", incidents=incidents)
+
+    executed_queries = []
+    store._conn.set_trace_callback(lambda sql: executed_queries.append(sql))
+    observations = store.get_observations("agent-1")
+    store._conn.set_trace_callback(None)
+
+    assert len(observations) == 50
+    assert len(executed_queries) == 1, f"Ожидался 1 запрос (JOIN), выполнено {len(executed_queries)}"
+    store.close()
+
+
+def test_get_observations_correctly_groups_multiple_incidents_via_join():
+    """После перехода на JOIN критично проверить, что наблюдение с
+    несколькими инцидентами не размножается на несколько наблюдений
+    (частая ошибка при ручной группировке результатов JOIN)."""
+    store = EvidenceStore(":memory:")
+    store.record_observation("agent-1", declared_score=50.0, declared_label="High Risk", incidents=[
+        Incident("a", IncidentSeverity.MINOR),
+        Incident("b", IncidentSeverity.MODERATE),
+        Incident("c", IncidentSeverity.SEVERE),
+    ])
+    observations = store.get_observations("agent-1")
+    assert len(observations) == 1  # не 3
+    assert len(observations[0].incidents) == 3
+    store.close()
+
+
+def test_get_observations_preserves_order_with_join():
+    store = EvidenceStore(":memory:")
+    for score in [10.0, 20.0, 30.0]:
+        store.record_observation("agent-1", declared_score=score, declared_label="High Risk")
+    observations = store.get_observations("agent-1")
+    assert [o.declared_score for o in observations] == [10.0, 20.0, 30.0]
+    store.close()
