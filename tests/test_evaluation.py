@@ -1,12 +1,12 @@
 """
-test_evaluation.py — тесты Real-World Evaluation Layer (v0.6.0, дополнено в v0.7.0).
+test_evaluation.py. Тесты Real-World Evaluation Layer.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.7.0
+Версия: 0.7.10
 
-ВАЖНО: тесты здесь проверяют МЕХАНИКУ подсчёта (правильно ли считается
-корреляция на контролируемых, заранее сконструированных данных) — а не
+Важно: тесты здесь проверяют механику подсчёта (правильно ли считается
+корреляция на контролируемых, заранее сконструированных данных), а не
 "валидируют" методологию. Реальная валидация требует реальных
 production-наблюдений, которых в тестах по определению нет.
 """
@@ -17,7 +17,7 @@ from agenomics.evaluation import RealWorldEvaluationLayer
 
 def _make_result(score_hint: float):
     """Хелпер: генерирует TrustResult с примерно нужным score через подбор
-    входных данных (не подделываем сам TrustResult напрямую — используем
+    входных данных (не подделываем сам TrustResult напрямую, используем
     настоящий TrustScorer, чтобы тест шёл через реальный код)."""
     genome = AgentGenome(
         id="eval-test", domain="content", autonomy="advisory",
@@ -40,7 +40,7 @@ def test_insufficient_data_before_threshold():
 def test_correlation_mechanics_negative_when_high_score_means_few_incidents():
     """Контролируемый сценарий: высокий declared score -> мало инцидентов,
     низкий declared score -> много инцидентов. Ожидаем отрицательную
-    корреляцию — это проверка правильности арифметики, не 'открытие'."""
+    корреляцию. Это проверка правильности арифметики, не 'открытие'."""
     layer = RealWorldEvaluationLayer(min_observations=10)
     for i in range(12):
         # Чередуем высокий/низкий score с соответствующей нагрузкой инцидентов
@@ -60,7 +60,7 @@ def test_correlation_mechanics_negative_when_high_score_means_few_incidents():
 
 def test_correlation_mechanics_near_zero_when_unrelated():
     """Обратный контроль: если инциденты НЕ связаны со score (одинаковая
-    нагрузка независимо от score), корреляция должна быть близка к нулю —
+    нагрузка независимо от score), корреляция должна быть близка к нулю,
     иначе в подсчёте есть скрытая ошибка."""
     layer = RealWorldEvaluationLayer(min_observations=10)
     for i in range(12):
@@ -110,7 +110,7 @@ def test_observations_accessor_returns_recorded_history():
 
 def test_record_raw_observation_bypasses_trust_result():
     """record_raw_observation (v0.7.0) должен работать идентично
-    record_observation, но принимая сырые значения — нужен для
+    record_observation, но принимая сырые значения. Нужен для
     воспроизведения данных из EvidenceStore, где полного TrustResult нет."""
     layer = RealWorldEvaluationLayer(min_observations=2)
     layer.record_raw_observation("agent-7", score=90.0, label="Trusted", confidence="High")
@@ -119,3 +119,61 @@ def test_record_raw_observation_bypasses_trust_result():
     assert len(obs) == 2
     assert obs[0].declared_score == 90.0
     assert obs[1].declared_label == "Trusted"
+
+
+# --- Тесты evidence_strength (v0.7.9) ------------------------------------
+
+def test_evidence_strength_insufficient_below_threshold():
+    layer = RealWorldEvaluationLayer(min_observations=10)
+    for i in range(5):
+        layer.record_raw_observation("agent-x", score=70.0, label="Conditional")
+    report = layer.trust_reality_report("agent-x")
+    assert report.status == "insufficient_data"
+    assert report.evidence_strength == "insufficient"
+
+
+def test_evidence_strength_exploratory_at_10():
+    layer = RealWorldEvaluationLayer(min_observations=10)
+    for i in range(12):
+        layer.record_raw_observation("agent-x", score=70.0, label="Conditional")
+    report = layer.trust_reality_report("agent-x")
+    assert report.status == "computed"
+    assert report.evidence_strength == "exploratory"
+
+
+def test_evidence_strength_preliminary_at_50():
+    layer = RealWorldEvaluationLayer(min_observations=10)
+    for i in range(60):
+        layer.record_raw_observation("agent-x", score=70.0, label="Conditional")
+    report = layer.trust_reality_report("agent-x")
+    assert report.evidence_strength == "preliminary"
+
+
+def test_evidence_strength_validation_candidate_at_200():
+    layer = RealWorldEvaluationLayer(min_observations=10)
+    for i in range(250):
+        layer.record_raw_observation("agent-x", score=70.0, label="Conditional")
+    report = layer.trust_reality_report("agent-x")
+    assert report.evidence_strength == "validation_candidate"
+
+
+def test_evidence_strength_strong_at_1000():
+    layer = RealWorldEvaluationLayer(min_observations=10)
+    for i in range(1000):
+        layer.record_raw_observation("agent-x", score=70.0, label="Conditional")
+    report = layer.trust_reality_report("agent-x")
+    assert report.evidence_strength == "strong"
+
+
+def test_evidence_strength_handles_custom_min_observations_below_10():
+    """Регрессионный тест на реальный найденный краевой случай: с кастомным
+    min_observations < 10, статус может быть "computed" при n меньше
+    универсального порога "exploratory" (10). Раньше это падало с
+    KeyError('insufficient') в словаре пояснений."""
+    layer = RealWorldEvaluationLayer(min_observations=3)
+    for i in range(3):
+        layer.record_raw_observation("agent-x", score=70.0, label="Conditional")
+    report = layer.trust_reality_report("agent-x")
+    assert report.status == "computed"
+    assert report.evidence_strength == "insufficient"
+    assert "min_observations" in report.detail
