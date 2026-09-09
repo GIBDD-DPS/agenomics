@@ -4,14 +4,14 @@
 
 Evaluate AI Agents. Build Real-World Evidence.
 
-Genetics for AI Agents. Predictability and compatibility scoring for autonomous agent personalities, это механизм. Реальные данные, это цель.
+Genetics for AI Agents. Predictability and compatibility scoring for autonomous agent personalities.
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Status](https://img.shields.io/badge/status-v0.7.8-orange.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-v0.7.10-orange.svg)](CHANGELOG.md)
 [![PyPI](https://img.shields.io/badge/PyPI-agenomics-blue.svg)](https://pypi.org/project/agenomics/)
 
-> **Автор**: Dm.Andreyanov **Версия**: 0.7.8 **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
+> **Автор**: Dm.Andreyanov **Версия**: 0.7.10 **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
 >
 > 📐 Формальная спецификация конвейера (Genome → Genome Schema → Phenotype
 > → Trust Model → Compatibility Model → Drift Model → Observed Behaviour
@@ -303,6 +303,24 @@ curl -X POST https://<ваш-адрес-развёртывания>/compatibilit
 
 **Для кого:** Команды, которые хотят автоматизировать аудит в CI/CD или дашборде.
 
+### CLI (v0.7.10)
+
+```bash
+pip install agenomics
+
+echo '{"id": "support-bot", "bias_control": 85, "transparency": 80}' > genome.json
+agenomics score genome.json        # JSON с итоговым score
+agenomics report genome.json       # полный Markdown-отчёт
+agenomics genome validate genome.json
+
+agenomics compatibility team.json  # JSON с полем "agents": [геном, геном, ...]
+agenomics evidence list agenomics_evidence.db --agent-id support-bot
+```
+
+Пять команд, ничего сверх того, что можно построить прямо сейчас поверх
+уже существующих функций. Не полный набор из гипотетического списка
+(`audit`, `drift`, `evidence export`), это следующий шаг, не в этом релизе.
+
 ## Модули v0.4
 
 Семь дополнительных модулей, расширяющих ядро (Trust Score + Compatibility Score):
@@ -424,6 +442,7 @@ agenomics/
 │   ├── per_axis_drift.py         # Per-Axis Drift Monitor (v0.7.1)
 │   ├── heatmap.py                 # Team Compatibility Heatmap (v0.7.1)
 │   ├── hooks.py                    # EvidenceStoreHook, приёмная сторона внешних интеграций (v0.7.4)
+│   ├── cli.py                       # Минимальный CLI: score/report/compatibility/evidence/genome (v0.7.10)
 │   ├── drift.py                # Drift Monitor
 │   ├── feedback.py              # Incident Feedback Loop
 │   ├── ledger.py                  # Genome Ledger
@@ -438,7 +457,7 @@ agenomics/
 │                              # репо-инструмент, не входит в pip-пакет, см. benchmark/README.md
 ├── prompts/                 # системные промпты (Trust Auditor и др.)
 ├── docs/                     # SPECIFICATION.md, METHODOLOGY.md, AEP-001.md
-├── tests/                     # тесты (181+, плюс 7 в test_api.py)
+├── tests/                     # тесты (203+, плюс 7 в test_api.py)
 ├── .github/workflows/          # CI, тесты и smoke-тест запускаются на каждый push/PR
 ├── amvera.yml                   # конфиг деплоя веб-API на Amvera
 ├── requirements.txt               # зависимости для запуска репозитория (тесты, FastAPI, uvicorn)
@@ -524,6 +543,10 @@ Python. `requirements.txt` нужен для запуска этого репо�
 - [x] v0.7.6: `EvidenceStore.get_observations()`, N+1 запрос к SQLite исправлен на один JOIN. На 20000 наблюдениях время выполнения снижено с 315мс до 130мс, индексы здесь не помогли бы, проблема была в архитектуре запроса
 - [x] v0.7.7: `EvidenceStore` теперь использует WAL journal mode для файловых БД, `scripts/verify_release.py` проверяет присутствие всех критичных файлов в репозитории перед релизом, добавлен как шаг CI
 - [x] v0.7.8: CORS настроен в `agenomics/api.py` (`allow_origins=["*"]`). Три других утверждения того же внешнего разбора (SQL-инъекция, коллизия хэша, отсутствие SECURITY.md) проверены и не подтвердились
+- [x] v0.7.9: `GenomeLedger`, цепочка целостности теперь покрывает всю запись (`entry_hash`), не только `genome_hash`. Подмена `score`/`label`/`confidence`/`timestamp` постфактум обнаруживается `verify_integrity()`
+- [x] v0.7.9: `RealWorldEvaluationLayer.trust_reality_report()`, многоуровневая `evidence_strength` вместо бинарного `insufficient_data`/`computed`
+- [x] v0.7.10: `agenomics/cli.py`, минимальный CLI (`score`/`report`/`compatibility`/`evidence list`/`genome validate`), `pip install agenomics[api]`/`[dev]`/`[all]` extras
+- [x] v0.7.10: тире, пропущенные в предыдущих раундах чистки (`AGENOMICS_ATTRIBUTION`, весь `agenomics/trust_score.py`), найдены при живом тестировании CLI
 - [ ] v0.8: Evolution/Mutation как предложение, требующее подтверждения человеком, не реализовано даже как прототип
 - [ ] v0.8: реальная Incident Correlation на настоящих production-данных, накопленных через EvidenceStore
 - [ ] v0.8: формальный Evaluation Protocol (EP-001..EP-00N с input, ground truth, metric, threshold, CI на каждый)
