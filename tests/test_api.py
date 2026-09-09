@@ -86,6 +86,22 @@ def test_compatibility_endpoint_requires_at_least_two_agents():
     assert response.status_code == 422  # pydantic min_length validation
 
 
+def test_cors_headers_present_on_preflight():
+    """Найдено внешним разбором: CORS вообще не был настроен, любой
+    запрос из браузера с другого origin был бы заблокирован политикой
+    same-origin. Проверяем, что preflight OPTIONS-запрос теперь получает
+    корректные CORS-заголовки."""
+    response = client.options(
+        "/score",
+        headers={
+            "Origin": "https://example.com",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == "*"
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     for t in tests:
