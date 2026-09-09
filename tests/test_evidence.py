@@ -3,7 +3,7 @@ test_evidence.py. Тесты Evidence Store.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.7.6
+Версия: 0.7.7
 """
 
 import json
@@ -387,4 +387,26 @@ def test_get_observations_preserves_order_with_join():
         store.record_observation("agent-1", declared_score=score, declared_label="High Risk")
     observations = store.get_observations("agent-1")
     assert [o.declared_score for o in observations] == [10.0, 20.0, 30.0]
+    store.close()
+
+
+def test_file_based_store_uses_wal_journal_mode():
+    """WAL позволяет одному писателю и нескольким читателям работать
+    одновременно без 'database is locked'. Найдено внешним разбором
+    как реальный, ранее не учтённый пробел."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = os.path.join(tmp, "wal_test.db")
+        store = EvidenceStore(db_path)
+        mode = store._conn.execute("PRAGMA journal_mode").fetchone()[0]
+        assert mode.lower() == "wal"
+        store.close()
+
+
+def test_memory_store_does_not_break_with_wal_guard():
+    """:memory: не поддерживает WAL вообще, проверяем, что попытка его
+    включить не была применена и не сломала запись/чтение."""
+    store = EvidenceStore(":memory:")
+    store.record_observation("agent-1", 80.0, "Trusted")
+    assert store.count_observations("agent-1") == 1
     store.close()
