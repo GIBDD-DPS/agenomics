@@ -3,7 +3,7 @@ ledger.py. Genome Ledger методологии Agenomics.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.7.5
+Версия: 0.7.10
 
 Простой append-only реестр: хэш генома, результат аудита, дата.
 Локальная in-memory реализация, прототип публичного реестра
@@ -41,6 +41,26 @@ def _genome_hash(genome: AgentGenome) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _entry_hash(genome_hash: str, agent_id: str, score: float, label: str,
+                 confidence: str, timestamp: str, prev_hash: Optional[str]) -> str:
+    """Хэш ВСЕЙ записи реестра, не только genome_hash.
+
+    Раньше цепочка целостности связывала записи через genome_hash
+    предыдущей записи, значит, изменение score/label/confidence/
+    timestamp постфактум НЕ обязательно ломало цепочку, если сам
+    genome_hash оставался прежним. Честная находка внешнего разбора,
+    указанная дважды подряд. Теперь prev_hash ссылается на entry_hash
+    предыдущей записи, а entry_hash покрывает все поля этой записи,
+    так что изменение любого из них меняет entry_hash, а значит и
+    цепочку целиком."""
+    payload = {
+        "prev_hash": prev_hash, "genome_hash": genome_hash, "agent_id": agent_id,
+        "score": score, "label": label, "confidence": confidence, "timestamp": timestamp,
+    }
+    raw = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
 @dataclass
 class LedgerEntry:
     genome_hash: str
@@ -49,7 +69,8 @@ class LedgerEntry:
     label: str
     confidence: str
     timestamp: str
-    prev_hash: Optional[str] = None  # хэш предыдущей записи, цепочка целостности
+    prev_hash: Optional[str] = None  # entry_hash предыдущей записи, не её genome_hash
+    entry_hash: str = ""  # хэш этой записи целиком, вычисляется в record()
 
 
 class GenomeLedger:
@@ -59,15 +80,21 @@ class GenomeLedger:
         self._entries: List[LedgerEntry] = []
 
     def record(self, genome: AgentGenome, result: TrustResult) -> LedgerEntry:
-        prev_hash = self._entries[-1].genome_hash if self._entries else None
+        prev_entry_hash = self._entries[-1].entry_hash if self._entries else None
+        genome_hash = _genome_hash(genome)
+        timestamp = datetime.now(timezone.utc).isoformat()
         entry = LedgerEntry(
-            genome_hash=_genome_hash(genome),
+            genome_hash=genome_hash,
             agent_id=genome.id,
             score=result.score,
             label=result.label,
             confidence=result.confidence,
-            timestamp=datetime.now(timezone.utc).isoformat(),
-            prev_hash=prev_hash,
+            timestamp=timestamp,
+            prev_hash=prev_entry_hash,
+            entry_hash=_entry_hash(
+                genome_hash, genome.id, result.score, result.label,
+                result.confidence, timestamp, prev_entry_hash,
+            ),
         )
         self._entries.append(entry)
         return entry
@@ -76,11 +103,22 @@ class GenomeLedger:
         return [e for e in self._entries if e.agent_id == agent_id]
 
     def verify_integrity(self) -> bool:
-        """Проверяет непрерывность цепочки prev_hash. Обнаруживает случайное
-        или намеренное удаление/перестановку записей внутри одного экземпляра
-        реестра. Не защищает от подмены самого файла/базы извне."""
-        for i in range(1, len(self._entries)):
-            if self._entries[i].prev_hash != self._entries[i - 1].genome_hash:
+        """Проверяет две вещи, не одну: (1) что prev_hash каждой записи
+        совпадает с entry_hash предыдущей (обнаруживает удаление или
+        перестановку записей), и (2) что entry_hash каждой записи всё
+        ещё соответствует её реальным полям (обнаруживает изменение
+        score/label/confidence/timestamp постфактум, даже если сам
+        genome_hash не менялся). Не защищает от подмены самого файла/
+        базы извне, это по-прежнему честно локальный in-memory реестр."""
+        for i, entry in enumerate(self._entries):
+            expected_prev = self._entries[i - 1].entry_hash if i > 0 else None
+            if entry.prev_hash != expected_prev:
+                return False
+            recomputed = _entry_hash(
+                entry.genome_hash, entry.agent_id, entry.score, entry.label,
+                entry.confidence, entry.timestamp, entry.prev_hash,
+            )
+            if recomputed != entry.entry_hash:
                 return False
         return True
 
