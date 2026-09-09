@@ -102,9 +102,27 @@ def test_ledger_records_and_chains_hashes():
     genome2 = AgentGenome(id="agent-y", bias_control=82)
     result2 = TrustScorer().score(genome2)
     entry2 = ledger.record(genome2, result2)
-    assert entry2.prev_hash == entry1.genome_hash  # цепочка
+    # Цепочка ссылается на entry_hash предыдущей записи, не на её genome_hash:
+    # entry_hash покрывает score/label/confidence/timestamp тоже, не только геном.
+    assert entry2.prev_hash == entry1.entry_hash
 
     assert ledger.verify_integrity() is True
+
+
+def test_ledger_detects_tampering_with_score_even_if_genome_hash_unchanged():
+    """Регрессионный тест на находку внешнего разбора, указанную дважды
+    подряд: изменение score/label/confidence/timestamp записи постфактум
+    раньше НЕ обязательно ломало verify_integrity(), потому что цепочка
+    была связана только через genome_hash, а не через хэш всей записи."""
+    ledger = GenomeLedger()
+    genome = AgentGenome(id="agent-1", bias_control=85, transparency=80)
+    result = TrustScorer().score(genome)
+    ledger.record(genome, result)
+    ledger.record(genome, result)
+
+    assert ledger.verify_integrity() is True
+    ledger._entries[0].score = 999.0  # подмена постфактум, genome_hash не трогаем
+    assert ledger.verify_integrity() is False
 
 
 def test_ledger_same_genome_produces_same_hash():
