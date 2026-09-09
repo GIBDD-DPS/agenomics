@@ -3,7 +3,7 @@ api.py. Минимальный веб-API методологии Agenomics.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.7.7
+Версия: 0.7.8
 
 Оборачивает уже протестированные TrustScorer и CompatibilityScorer
 (см. trust_score.py, compatibility.py и соответствующие тесты) в
@@ -42,6 +42,7 @@ HTTP-эндпоинты. Используется amvera.yml для деплоя
 from typing import Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .compatibility import CompatibilityScorer
@@ -53,7 +54,21 @@ app = FastAPI(
         "Genetics for AI Agents. Trust Score и Compatibility Score для "
         "автономных ИИ-агентов. Методология: см. docs/METHODOLOGY.md в репозитории."
     ),
-    version="0.7.7",
+    version="0.7.8",
+)
+
+# CORS не был настроен вовсе. Если API вызывается напрямую из браузера
+# (например, будущий веб-калькулятор на prizolov.ru из roadmap v0.8),
+# запрос будет заблокирован политикой same-origin без этого middleware.
+# Разрешаем все origin по умолчанию, так как /score и /compatibility не
+# требуют аутентификации и не возвращают ничего специфичного для сессии
+# пользователя, сузьте allow_origins до конкретных доменов, если начнёте
+# требовать аутентификацию.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
 )
 
 _default_scorer = TrustScorer()
@@ -173,7 +188,7 @@ def _to_genome(payload: GenomeRequest) -> AgentGenome:
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "service": "agenomics-api", "version": "0.7.7"}
+    return {"status": "ok", "service": "agenomics-api", "version": "0.7.8"}
 
 
 @app.get("/")
