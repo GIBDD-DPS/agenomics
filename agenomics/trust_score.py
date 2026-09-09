@@ -1,9 +1,9 @@
 """
-trust_score.py — реализация формулы Trust Score методологии Agenomics.
+trust_score.py: реализация формулы Trust Score методологии Agenomics.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.4.3
+Версия: 0.7.10
 
 Логика соответствует промпту "Trust Auditor v0.2" плюс улучшения v0.3-0.4:
   1. Классификация Impact Tier по домену агента (включая множественные домены).
@@ -12,17 +12,17 @@ trust_score.py — реализация формулы Trust Score методо�
   3. Жёсткий потолок Trust Score ≤ 70 для Autonomous-агентов
      с низкой Accountability (< 80), независимо от среднего балла.
   4. Явная пометка "insufficient_information", если данных для
-     честной оценки одной из осей не хватает — вместо завышения балла.
+     честной оценки одной из осей не хватает: вместо завышения балла.
   5. [v0.3] Настраиваемые профили весов (default / healthcare / finance / content).
   6. [v0.3] Множественный domain: агент, затрагивающий несколько доменов,
      оценивается по самому строгому (максимальному) Tier среди них.
-  7. [v0.3] Confidence — явная метка уверенности в оценке, отдельная от
+  7. [v0.3] Confidence: явная метка уверенности в оценке, отдельная от
      самого score, основанная на доле осей с достаточными данными.
-  8. [v0.4.1] how_to — практическая подсказка "как сделать" для каждой
+  8. [v0.4.1] how_to: практическая подсказка "как сделать" для каждой
      оси, попавшей в рекомендации (используется в reports.py).
-  9. [v0.4.3] language — параметр TrustScorer(language="ru"|"en").
+  9. [v0.4.3] language: параметр TrustScorer(language="ru"|"en").
      Определяет язык текста recommendations, capped_reason и how_to.
-     Поддерживаются "ru" (по умолчанию) и "en"; список расширяем —
+     Поддерживаются "ru" (по умолчанию) и "en"; список расширяем :
      см. HOW_TO_GUIDE_TRANSLATIONS и *_TEMPLATES ниже.
 """
 
@@ -58,7 +58,7 @@ _TIER_3_PENALTY_MULTIPLIER = 1.3
 
 # --- v0.3: настраиваемые профили весов -------------------------------------
 # Каждый профиль обязан суммироваться в 1.0 (проверяется при инициализации
-# TrustScorer). Профили — экспертная калибровка под тип домена, а не
+# TrustScorer). Профили: экспертная калибровка под тип домена, а не
 # результат статистического анализа; список открыт для расширения.
 
 DEFAULT_TRUST_WEIGHTS: Dict[str, float] = {
@@ -99,13 +99,13 @@ TRUST_WEIGHT_PROFILES: Dict[str, Dict[str, float]] = {
 
 _WEIGHT_SUM_TOLERANCE = 0.001
 
-# Практические подсказки "как это сделать" для каждой оси — используются
+# Практические подсказки "как это сделать" для каждой оси: используются
 # в рекомендациях TrustResult.how_to и в отчётах (reports.py). Это тоже
 # экспертная эвристика: общие практики, а не гарантированный рецепт для
-# конкретного агента — реальная реализация зависит от вашего стека.
+# конкретного агента: реальная реализация зависит от вашего стека.
 HOW_TO_GUIDE: Dict[str, str] = {
     "transparency": (
-        "Добавьте в ответ агента краткое обоснование решения (reasoning) — "
+        "Добавьте в ответ агента краткое обоснование решения (reasoning): "
         "пользователь должен понимать, почему дан именно такой ответ, "
         "а не просто получать результат."
     ),
@@ -121,22 +121,22 @@ HOW_TO_GUIDE: Dict[str, str] = {
     ),
     "predictability": (
         "Пропишите в промпте явные правила для edge-cases (противоречивые "
-        "данные, нестандартные запросы) — это снижает дрейф поведения "
+        "данные, нестандартные запросы): это снижает дрейф поведения "
         "(drift_rate) сильнее, чем общие инструкции."
     ),
     "accountability": (
         "Включите ведение журнала решений агента (has_ledger=True в "
-        "AgentGenome) — неизменяемая история action/decision поднимает "
+        "AgentGenome): неизменяемая история action/decision поднимает "
         "эту ось быстрее всего и снимает потолок автономности."
     ),
 }
 
 # [v0.4.3] Английский перевод HOW_TO_GUIDE. HOW_TO_GUIDE (выше) сохранён
 # как есть для обратной совместимости (semver 0.x, но лишний breaking
-# change без нужды — плохая практика) — это дефолт для language="ru".
+# change без нужды: плохая практика): это дефолт для language="ru".
 _HOW_TO_GUIDE_EN: Dict[str, str] = {
     "transparency": (
-        "Add a brief reasoning explanation to the agent's response — the "
+        "Add a brief reasoning explanation to the agent's response: the "
         "user should understand why a particular answer was given, not "
         "just receive the result."
     ),
@@ -152,12 +152,12 @@ _HOW_TO_GUIDE_EN: Dict[str, str] = {
     ),
     "predictability": (
         "Add explicit rules for edge cases (conflicting data, non-standard "
-        "requests) to the prompt — this reduces behavioral drift "
+        "requests) to the prompt: this reduces behavioral drift "
         "(drift_rate) more effectively than general instructions."
     ),
     "accountability": (
         "Enable a decision log for the agent (has_ledger=True in "
-        "AgentGenome) — an immutable action/decision history raises this "
+        "AgentGenome): an immutable action/decision history raises this "
         "axis the fastest and lifts the autonomy ceiling."
     ),
 }
@@ -194,14 +194,14 @@ _CAPPED_REASON_TEMPLATE = {
 }
 SUPPORTED_LANGUAGES = tuple(HOW_TO_GUIDE_TRANSLATIONS.keys())
 
-# Атрибуция, включаемая в каждый результат — промпт, код, API.
+# Атрибуция, включаемая в каждый результат: промпт, код, API.
 # Цель: любой скопированный/расшаренный отчёт несёт ссылку на источник.
-AGENOMICS_ATTRIBUTION = "Powered by Agenomics (Trust Score methodology) — prizolov.ru · by Dm.Andreyanov, Prizolov Lab"
+AGENOMICS_ATTRIBUTION = "Powered by Agenomics (Trust Score methodology), prizolov.ru · by Dm.Andreyanov, Prizolov Lab"
 
 
 def _validate_range(name: str, value: Optional[float], lo: float = 0.0, hi: float = 100.0) -> None:
     """Проверяет, что значение оси попадает в допустимый диапазон.
-    None пропускается — это законное состояние "нет данных"."""
+    None пропускается: это законное состояние "нет данных"."""
     if value is not None and not (lo <= value <= hi):
         raise ValueError(f"{name} должен быть в диапазоне [{lo}, {hi}], получено {value}")
 
@@ -209,7 +209,7 @@ def _validate_range(name: str, value: Optional[float], lo: float = 0.0, hi: floa
 def infer_tier(domain: Optional[str]) -> ImpactTier:
     """Определяет Impact Tier по названию одного домена агента."""
     if not domain:
-        # Неизвестный домен — консервативный дефолт (не занижаем строгость).
+        # Неизвестный домен: консервативный дефолт (не занижаем строгость).
         return ImpactTier.TIER_2
     d = domain.strip().lower()
     if d in _TIER_3_DOMAINS:
@@ -238,12 +238,12 @@ class AgentGenome:
     tier_override: Optional[ImpactTier] = None
 
     # [v0.3] Агент, затрагивающий несколько доменов (например, поддержка,
-    # которая иногда обрабатывает возвраты денег). Если указано — Tier
+    # которая иногда обрабатывает возвраты денег). Если указано: Tier
     # берётся как МАКСИМУМ среди всех доменов списка (самый строгий).
-    # Если не указано — используется одиночный `domain` как раньше.
+    # Если не указано: используется одиночный `domain` как раньше.
     domains: Optional[List[str]] = None
 
-    # [v0.3] Роль агента в команде — используется Compatibility Scorer для
+    # [v0.3] Роль агента в команде: используется Compatibility Scorer для
     # различения "агенты должны быть похожи" от "агенты специально разные".
     # Известные значения: "standard" (по умолчанию), "executor", "reviewer".
     role: Optional[str] = None
@@ -253,8 +253,19 @@ class AgentGenome:
     risk_tolerance: Optional[float] = None  # 0 (осторожный) - 100 (рискованный)
     social_style: Optional[float] = None    # 0 (формальный/прямой) - 100 (неформальный/эмпатичный)
 
+    # [v0.7.1] Confidence на уровне отдельного гена: насколько уверенно
+    # заявлено ЗНАЧЕНИЕ конкретной оси (0.0-1.0), а не бинарное "есть/нет
+    # данных", как раньше. Например: bias_control=80 при
+    # axis_confidence={"bias_control": 0.4} означает "мы предполагаем 80,
+    # но не проверяли тщательно": в отличие от bias_control=None
+    # ("совсем нет данных") и axis_confidence отсутствует ("уверены на 100%").
+    # Не указанная в словаре ось трактуется как полная уверенность (1.0),
+    # если её значение задано, и 0.0, если оно None (совпадает со старым
+    # поведением insufficient_axes: обратная совместимость сохранена).
+    axis_confidence: Optional[Dict[str, float]] = None
+
     def __post_init__(self):
-        """Валидация диапазонов — библиотека не должна молча принимать
+        """Валидация диапазонов: библиотека не должна молча принимать
         мусорные значения (bias_control=150, drift_rate=-0.3 и т.п.),
         даже при прямом использовании в обход API/Pydantic."""
         for axis_name in ("transparency", "bias_control", "data_safety", "risk_tolerance", "social_style"):
@@ -262,6 +273,12 @@ class AgentGenome:
         _validate_range("accountability_override", self.accountability_override)
         if self.drift_rate is not None and not (0.0 <= self.drift_rate <= 1.0):
             raise ValueError(f"drift_rate должен быть в диапазоне [0.0, 1.0], получено {self.drift_rate}")
+        if self.axis_confidence is not None:
+            for axis_name, value in self.axis_confidence.items():
+                if not (0.0 <= value <= 1.0):
+                    raise ValueError(
+                        f"axis_confidence['{axis_name}'] должен быть в диапазоне [0.0, 1.0], получено {value}"
+                    )
 
     @property
     def tier(self) -> ImpactTier:
@@ -293,7 +310,7 @@ class TrustResult:
     insufficient_axes: list = field(default_factory=list)
     capped_reason: Optional[str] = None
     recommendations: list = field(default_factory=list)
-    # [v0.3] Уверенность в оценке — НЕ то же самое, что сам score.
+    # [v0.3] Уверенность в оценке: НЕ то же самое, что сам score.
     # Агент с score=50 из-за реально средних показателей и агент с
     # score=50 из-за отсутствия данных выглядят одинаково в `score`,
     # но должны различаться по `confidence`.
@@ -301,6 +318,10 @@ class TrustResult:
     confidence_ratio: float = 1.0     # доля осей с достаточными данными (0-1)
     attribution: str = AGENOMICS_ATTRIBUTION
     how_to: dict = field(default_factory=dict)  # axis -> практическая подсказка "как сделать"
+    # [v0.7.1] Per-axis confidence, реально использованная при расчёте
+    # confidence_ratio: либо переданная в AgentGenome.axis_confidence,
+    # либо выведенная из insufficient_axes (обратная совместимость).
+    axis_confidence: dict = field(default_factory=dict)
 
 
 class TrustScorer:
@@ -315,9 +336,9 @@ class TrustScorer:
         """
         weight_profile: имя пресета из TRUST_WEIGHT_PROFILES
             ("default", "healthcare", "finance", "content").
-        weights: явный словарь весов — переопределяет weight_profile,
+        weights: явный словарь весов: переопределяет weight_profile,
             если передан. Должен суммироваться в 1.0.
-        language: язык текстов recommendations/capped_reason/how_to —
+        language: язык текстов recommendations/capped_reason/how_to :
             "ru" (по умолчанию) или "en". Список поддерживаемых языков:
             SUPPORTED_LANGUAGES.
         """
@@ -370,7 +391,7 @@ class TrustScorer:
                 resolved[axis] = value
 
         tier = genome.tier
-        # Tier-множитель применяется к Predictability и Accountability —
+        # Tier-множитель применяется к Predictability и Accountability :
         # именно эти оси определяют риск при сбое агента без надзора.
         resolved["predictability"] = self._apply_tier_penalty(
             resolved["predictability"], tier
@@ -401,7 +422,19 @@ class TrustScorer:
         how_to_source = HOW_TO_GUIDE_TRANSLATIONS[self._language]
         how_to = {axis: how_to_source[axis] for axis in weak_axes if axis in how_to_source}
 
-        confidence_ratio = 1 - (len(insufficient) / len(raw))
+        # [v0.7.1] Confidence на уровне гена: если пользователь передал
+        # axis_confidence: используем её; иначе (обратная совместимость)
+        # старое бинарное правило "1.0 если значение задано, 0.0 если нет".
+        # При axis_confidence=None формула математически даёт РОВНО ТО ЖЕ
+        # число, что и раньше: не breaking change для существующих вызовов.
+        per_axis_confidence = {}
+        for axis in raw:
+            if genome.axis_confidence and axis in genome.axis_confidence:
+                per_axis_confidence[axis] = genome.axis_confidence[axis]
+            else:
+                per_axis_confidence[axis] = 0.0 if axis in insufficient else 1.0
+
+        confidence_ratio = sum(per_axis_confidence.values()) / len(per_axis_confidence)
         confidence = self._confidence_label(confidence_ratio)
 
         return TrustResult(
@@ -414,6 +447,7 @@ class TrustScorer:
             confidence=confidence,
             confidence_ratio=round(confidence_ratio, 2),
             how_to=how_to,
+            axis_confidence={k: round(v, 2) for k, v in per_axis_confidence.items()},
         )
 
     @staticmethod
