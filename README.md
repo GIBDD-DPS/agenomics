@@ -8,10 +8,10 @@ Genetics for AI Agents. Predictability and compatibility scoring for autonomous 
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Status](https://img.shields.io/badge/status-v0.7.7-orange.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-v0.7.8-orange.svg)](CHANGELOG.md)
 [![PyPI](https://img.shields.io/badge/PyPI-agenomics-blue.svg)](https://pypi.org/project/agenomics/)
 
-> **Автор**: Dm.Andreyanov **Версия**: 0.7.7 **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
+> **Автор**: Dm.Andreyanov **Версия**: 0.7.8 **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
 >
 > 📐 Формальная спецификация конвейера (Genome → Genome Schema → Phenotype
 > → Trust Model → Compatibility Model → Drift Model → Observed Behaviour
@@ -523,6 +523,7 @@ Python. `requirements.txt` нужен для запуска этого репо�
 - [x] v0.7.5: главный заголовок README приведён к позиционированию Product Hunt («Make AI Agent Trust Testable»)
 - [x] v0.7.6: `EvidenceStore.get_observations()`, N+1 запрос к SQLite исправлен на один JOIN. На 20000 наблюдениях время выполнения снижено с 315мс до 130мс, индексы здесь не помогли бы, проблема была в архитектуре запроса
 - [x] v0.7.7: `EvidenceStore` теперь использует WAL journal mode для файловых БД, `scripts/verify_release.py` проверяет присутствие всех критичных файлов в репозитории перед релизом, добавлен как шаг CI
+- [x] v0.7.8: CORS настроен в `agenomics/api.py` (`allow_origins=["*"]`). Три других утверждения того же внешнего разбора (SQL-инъекция, коллизия хэша, отсутствие SECURITY.md) проверены и не подтвердились
 - [ ] v0.8: Evolution/Mutation как предложение, требующее подтверждения человеком, не реализовано даже как прототип
 - [ ] v0.8: реальная Incident Correlation на настоящих production-данных, накопленных через EvidenceStore
 - [ ] v0.8: формальный Evaluation Protocol (EP-001..EP-00N с input, ground truth, metric, threshold, CI на каждый)
