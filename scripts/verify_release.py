@@ -45,6 +45,7 @@ CRITICAL_FILES = [
     "agenomics/evaluation.py",
     "agenomics/evidence.py",
     "agenomics/hooks.py",
+    "agenomics/cli.py",
     "agenomics/reports.py",
     "agenomics/api.py",
     "docs/SPECIFICATION.md",
