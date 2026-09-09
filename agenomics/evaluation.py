@@ -1,33 +1,39 @@
 """
-evaluation.py — Real-World Evaluation Layer (v0.6.0, обновлено в v0.7.0).
+evaluation.py. Real-World Evaluation Layer.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
+Версия: 0.7.10
 
 До этого модуля компоненты уровня Observed Behaviour существовали по
 отдельности: IncidentFeedback пересчитывал score по инцидентам разово,
-GenomeLedger вёл хэш-цепочку записей, DriftMonitor следил за трендом —
-но не было единой точки сбора, которая связывала бы Declared Score,
-реальные инциденты и дрейф ВО ВРЕМЕНИ для одного агента, чтобы затем
+GenomeLedger вёл хэш-цепочку записей, DriftMonitor следил за трендом.
+Не было единой точки сбора, которая связывала бы Declared Score,
+реальные инциденты и дрейф во времени для одного агента, чтобы затем
 посчитать связь между ними.
 
-RealWorldEvaluationLayer — эта единая точка. Она делает измерение
-Incident Correlation принципиально ВОЗМОЖНЫМ, когда появятся реальные
-production-данные — до сих пор такой инфраструктуры не было вообще,
+RealWorldEvaluationLayer это единая точка. Она делает измерение
+Incident Correlation принципиально возможным, когда появятся реальные
+production-данные. До этого модуля такой инфраструктуры не было вообще,
 только заглушка not_computable в benchmark/metrics.py.
 
-[v0.7.0] Добавлен record_raw_observation() — низкоуровневый метод записи
-по сырым score/label/confidence, без полноценного TrustResult. Нужен для
+record_raw_observation(): низкоуровневый метод записи по сырым
+score/label/confidence, без полноценного TrustResult. Нужен для
 воспроизведения наблюдений, загруженных из agenomics.evidence.EvidenceStore
-(персистентное хранилище — само по себе эта in-memory реализация
+(персистентное хранилище, само по себе эта in-memory реализация
 по-прежнему не переживает перезапуск процесса).
 
-ВАЖНО: сама по себе эта инфраструктура не производит "валидацию" —
-она лишь умеет корректно посчитать корреляцию, КОГДА вы передадите ей
+Важно: сама по себе эта инфраструктура не производит "валидацию". Она
+лишь умеет корректно посчитать корреляцию, когда вы передадите ей
 реальные наблюдения. На синтетических/тестовых данных её тесты
-проверяют только МЕХАНИКУ (правильность подсчёта), а не реальную
-предсказательную силу методологии — то же разграничение, что и во
+проверяют только механику (правильность подсчёта), а не реальную
+предсказательную силу методологии, то же разграничение, что и во
 всём остальном проекте (см. benchmark/README.md).
+
+evidence_strength (v0.7.9): корреляция на 10 наблюдениях и на 1000
+наблюдениях технически обе "computed", но это вводит в заблуждение о
+реальной статистической силе результата. Многоуровневая метка честнее
+бинарного insufficient_data/computed.
 """
 
 from dataclasses import dataclass, field
@@ -70,6 +76,27 @@ class Observation:
     incidents: List[Incident] = field(default_factory=list)
 
 
+def _evidence_strength(n: int) -> str:
+    """Многоуровневая честность вместо бинарного insufficient/computed.
+
+    10 наблюдений технически достаточно, чтобы Pearson не упал с ошибкой
+    деления на ноль, но называть это "computed" наравне с 1000
+    наблюдениями вводит в заблуждение о реальной статистической силе
+    результата. Пороги (10/50/200/1000) - экспертная эвристика, не
+    результат формального power analysis, и это стоит явно проговорить
+    в любом отчёте, где эта метка используется."""
+    if n < _MIN_OBSERVATIONS_FOR_CORRELATION:
+        return "insufficient"
+    elif n < 50:
+        return "exploratory"
+    elif n < 200:
+        return "preliminary"
+    elif n < 1000:
+        return "validation_candidate"
+    else:
+        return "strong"
+
+
 @dataclass
 class TrustRealityReport:
     agent_id: str
@@ -79,12 +106,13 @@ class TrustRealityReport:
     declared_score_trend: Optional[str] = None  # severity из DriftMonitorV2
     incident_rate: Optional[float] = None  # средняя "нагрузка" инцидентов на наблюдение
     detail: str = ""
+    evidence_strength: str = "insufficient"  # insufficient/exploratory/preliminary/validation_candidate/strong
 
 
 class RealWorldEvaluationLayer:
     """
     Собирает Declared Score + реальные инциденты + дрейф для агента во
-    времени. Не база данных — in-memory, как и остальные компоненты
+    времени. Не база данных, in-memory, как и остальные компоненты
     уровня Observed Behaviour (docs/SPECIFICATION.md, раздел 8).
     """
 
@@ -103,11 +131,11 @@ class RealWorldEvaluationLayer:
         timestamp: Optional[datetime] = None,
     ) -> Observation:
         """
-        Низкоуровневая запись — принимает сырые score/label/confidence,
+        Низкоуровневая запись, принимает сырые score/label/confidence,
         а не полноценный TrustResult. Нужна для двух случаев:
-          1. record_observation() ниже — обычный путь через TrustResult;
+          1. record_observation() ниже, обычный путь через TrustResult;
           2. воспроизведение наблюдений из EvidenceStore (agenomics/evidence.py),
-             где TrustResult не хранится целиком — только его ключевые поля.
+             где TrustResult не хранится целиком, только его ключевые поля.
         """
         ts = timestamp or datetime.now(timezone.utc)
         obs = Observation(
@@ -136,8 +164,8 @@ class RealWorldEvaluationLayer:
     def trust_reality_report(self, agent_id: str) -> TrustRealityReport:
         """
         Считает РЕАЛЬНУЮ корреляцию между Declared Score и "нагрузкой"
-        инцидентов на тех же наблюдениях — при условии достаточного
-        количества данных. До этого — честный insufficient_data, а не
+        инцидентов на тех же наблюдениях, при условии достаточного
+        количества данных. До этого честный insufficient_data, а не
         подогнанное число на 2-3 точках.
         """
         obs_list = self._observations.get(agent_id, [])
@@ -146,9 +174,10 @@ class RealWorldEvaluationLayer:
         if n < self._min_observations:
             return TrustRealityReport(
                 agent_id=agent_id, status="insufficient_data", n_observations=n,
+                evidence_strength=_evidence_strength(n),
                 detail=(
                     f"Нужно минимум {self._min_observations} наблюдений для "
-                    f"содержательной корреляции, есть {n}. Это НЕ ошибка — "
+                    f"содержательной корреляции, есть {n}. Это не ошибка. "
                     f"реальная оценка предсказательной силы Trust Score "
                     f"физически требует времени эксплуатации в проде."
                 ),
@@ -163,19 +192,49 @@ class RealWorldEvaluationLayer:
         correlation = _pearson(scores, incident_loads)
         incident_rate = total_incidents / n
         drift_report = self._drift.report(agent_id)
+        strength = _evidence_strength(n)
+
+        _STRENGTH_CAVEAT = {
+            "insufficient": (
+                f"n={n}. Формально прошло ваш собственный min_observations "
+                f"({self._min_observations}), но всё ещё ниже универсального "
+                f"порога 'exploratory' (10), ниже которого корреляция особенно "
+                f"нестабильна. Если вы намеренно понизили min_observations, "
+                f"относитесь к этому числу с осторожностью."
+            ),
+            "exploratory": (
+                f"n={n}, уровень 'exploratory'. Корреляция на таком объёме "
+                f"крайне нестабильна, статистический шум обычно доминирует "
+                f"над реальным сигналом. Не делайте выводов о предсказательности "
+                f"формулы на этом этапе, только накапливайте данные дальше."
+            ),
+            "preliminary": (
+                f"n={n}, уровень 'preliminary'. Больше сигнала, чем при "
+                f"exploratory, но всё ещё далеко от статистически надёжного "
+                f"вывода."
+            ),
+            "validation_candidate": (
+                f"n={n}, уровень 'validation_candidate'. Достаточно для "
+                f"осторожных предварительных выводов, но baseline-сравнение "
+                f"и temporal holdout ещё не проводились."
+            ),
+            "strong": (
+                f"n={n}, уровень 'strong'. Достаточный объём для содержательного "
+                f"статистического вывода, при условии, что инциденты отражают "
+                f"поведенческие, а не инфраструктурные проблемы."
+            ),
+        }
 
         return TrustRealityReport(
             agent_id=agent_id, status="computed", n_observations=n,
             correlation=round(correlation, 4),
             declared_score_trend=drift_report.severity,
             incident_rate=round(incident_rate, 3),
+            evidence_strength=strength,
             detail=(
                 f"Корреляция Пирсона между Declared Score и нагрузкой инцидентов "
-                f"на {n} наблюдениях: {correlation:.4f}. Ожидается ОТРИЦАТЕЛЬНАЯ "
+                f"на {n} наблюдениях: {correlation:.4f}. Ожидается отрицательная "
                 f"корреляция, если методология действительно предсказательна "
-                f"(выше score -> меньше инцидентов). Это первая версия Incident "
-                f"Correlation, которая физически МОЖЕТ дать реальное число — "
-                f"но только если сюда переданы настоящие production-наблюдения, "
-                f"а не тестовые данные."
+                f"(выше score, меньше инцидентов). {_STRENGTH_CAVEAT[strength]}"
             ),
         )
