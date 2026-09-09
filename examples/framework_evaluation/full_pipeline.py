@@ -32,12 +32,20 @@ from genome_from_capture import derive_genome_from_capture
 
 def _genome_hash(genome) -> str:
     """Тот же принцип, что в agenomics.ledger: детерминированный хэш
-    по значениям полей, для provenance в AEP-001."""
-    payload = {
-        "domain": genome.domain, "autonomy": genome.autonomy.value if hasattr(genome.autonomy, "value") else genome.autonomy,
-        "data_safety": genome.data_safety, "drift_rate": genome.drift_rate, "has_ledger": genome.has_ledger,
-    }
-    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
+    по всем полям датакласса, не по вручную поддерживаемому списку.
+
+    Раньше здесь был короткий ручной список из 5 полей (domain,
+    autonomy, data_safety, drift_rate, has_ledger), и два генома,
+    различающихся, например, только transparency или axis_confidence,
+    получали одинаковый хэш. Та же находка, что и в agenomics.ledger,
+    исправлена тем же способом: dataclasses.asdict() автоматически
+    охватывает все текущие и будущие поля AgentGenome."""
+    from dataclasses import asdict
+    payload = asdict(genome)
+    return hashlib.sha256(json.dumps(
+        payload, sort_keys=True,
+        default=lambda o: getattr(o, "value", str(o)),
+    ).encode()).hexdigest()[:16]
 
 
 def _load_history_from_store(store: EvidenceStore, agent_id: str):
