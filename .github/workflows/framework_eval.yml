@@ -41,6 +41,8 @@ jobs:
           pip install smolagents
           pip install google-adk
           pip install "txtai[agent]"
+          pip install swarms
+          pip install semantic-kernel
           pip install requests
         continue-on-error: true
 
