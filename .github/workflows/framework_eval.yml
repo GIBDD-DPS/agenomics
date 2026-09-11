@@ -43,6 +43,8 @@ jobs:
           pip install "txtai[agent]"
           pip install swarms
           pip install semantic-kernel
+          pip install openai-agents
+          pip install beeai-framework
           pip install requests
         continue-on-error: true
 
