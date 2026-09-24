@@ -46,7 +46,10 @@ CREATE TABLE IF NOT EXISTS observations (
     execution_status TEXT,
     duration_seconds REAL,
     model_version TEXT,
-    prompt_version TEXT
+    prompt_version TEXT,
+    framework_version TEXT,
+    observed_model_version TEXT,
+    task_outcome TEXT
 );
 
 CREATE TABLE IF NOT EXISTS incidents (
@@ -69,8 +72,13 @@ _OBSERVATION_COLS = (
     "id, agent_id, timestamp, declared_score, declared_label, declared_confidence, "
     "genome_hash, genome_version, trust_model_version, evaluation_period, "
     "request_count, schema_version, collector, source, execution_status, duration_seconds, "
-    "model_version, prompt_version"
+    "model_version, prompt_version, framework_version, observed_model_version, task_outcome"
 )
+
+# [v0.8.0] Исход задачи, а не факт выполнения: execution_status говорит,
+# отработал ли агент без исключения, task_outcome, решил ли он задачу.
+# None (NULL в базе) значит "исход ещё неизвестен или не сообщался".
+TASK_OUTCOMES = ("success", "failure", "partial")
 
 
 @dataclass
@@ -93,6 +101,9 @@ class StoredObservation:
     duration_seconds: Optional[float] = None
     model_version: Optional[str] = None
     prompt_version: Optional[str] = None
+    framework_version: Optional[str] = None
+    observed_model_version: Optional[str] = None
+    task_outcome: Optional[str] = None
     incidents: List[Dict] = field(default_factory=list)
 
 
@@ -109,6 +120,9 @@ _EXPECTED_OBSERVATION_COLUMNS = {
     "duration_seconds": "REAL",
     "model_version": "TEXT",
     "prompt_version": "TEXT",
+    "framework_version": "TEXT",
+    "observed_model_version": "TEXT",
+    "task_outcome": "TEXT",
 }
 
 
@@ -168,6 +182,8 @@ class EvidenceStore:
         duration_seconds: Optional[float] = None,
         model_version: Optional[str] = None,
         prompt_version: Optional[str] = None,
+        framework_version: Optional[str] = None,
+        observed_model_version: Optional[str] = None,
         timestamp: Optional[datetime] = None,
     ) -> int:
         """Сохраняет одно наблюдение и связанные инциденты по схеме AEP-001.
@@ -189,7 +205,15 @@ class EvidenceStore:
         agenomics считался score. Без этих полей смена модели или промпта
         выглядит в истории как дрейф самого агента. Автоматически не
         проставляются: agenomics не может знать, какую модель вызывал
-        агент, None честнее угаданного значения."""
+        агент, None честнее угаданного значения.
+
+        [v0.8.0] framework_version: версия библиотеки агентного фреймворка
+        (например, crewai 0.x), обновление которой иначе выглядит в истории
+        как дрейф агента. observed_model_version: модель, которую реально
+        вернул провайдер в ответе, в отличие от заявленной model_version.
+        Расхождение двух полей значит, что заявленная модель не та, что
+        отработала (переименование на стороне провайдера, fallback, ошибка
+        конфигурации)."""
         ts = (timestamp or datetime.now(timezone.utc)).isoformat()
 
         resolved_trust_model_version = trust_model_version or agenomics_version
@@ -202,17 +226,57 @@ class EvidenceStore:
             "(agent_id, timestamp, declared_score, declared_label, declared_confidence, "
             "genome_hash, genome_version, trust_model_version, evaluation_period, "
             "request_count, schema_version, collector, source, execution_status, duration_seconds, "
-            "model_version, prompt_version) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "model_version, prompt_version, framework_version, observed_model_version) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 agent_id, ts, declared_score, declared_label, declared_confidence,
                 genome_hash, genome_version, resolved_trust_model_version, evaluation_period,
                 request_count, AEP_SCHEMA_VERSION, collector, source, execution_status, duration_seconds,
-                model_version, prompt_version,
+                model_version, prompt_version, framework_version, observed_model_version,
             ),
         )
         obs_id = cur.lastrowid
+        self._insert_incidents(obs_id, incidents)
+        self._conn.commit()
+        return obs_id
 
+    def record_task_outcome(
+        self,
+        observation_id: int,
+        outcome: str,
+        incidents: Optional[List[Incident]] = None,
+    ) -> None:
+        """[v0.8.0] Дописывает исход задачи к уже записанному наблюдению.
+
+        Предназначено для схемы "score до задачи, исход после": сначала
+        record_observation() со score, посчитанным ДО выполнения задачи,
+        затем, когда исход стал известен, этот вызов с тем же id. Так
+        score наблюдения не может зависеть от его исхода (см. target
+        leakage в CHANGELOG 0.7.12).
+
+        Исход записывается один раз: повторный вызов для наблюдения, у
+        которого task_outcome уже задан, это ValueError, а не перезапись.
+        Исход, известный задним числом, не должен тихо заменять тот,
+        что уже сообщён; если первый был ошибкой, это отдельный инцидент
+        с resolution, а не правка истории."""
+        if outcome not in TASK_OUTCOMES:
+            raise ValueError(f"outcome должен быть одним из {TASK_OUTCOMES}, получено {outcome!r}")
+        row = self._conn.execute(
+            "SELECT task_outcome FROM observations WHERE id = ?", (observation_id,)
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"наблюдение id={observation_id} не найдено")
+        if row[0] is not None:
+            raise ValueError(
+                f"у наблюдения id={observation_id} исход уже записан ({row[0]!r}), перезапись запрещена"
+            )
+        self._conn.execute(
+            "UPDATE observations SET task_outcome = ? WHERE id = ?", (outcome, observation_id)
+        )
+        self._insert_incidents(observation_id, incidents)
+        self._conn.commit()
+
+    def _insert_incidents(self, obs_id: int, incidents: Optional[List[Incident]]) -> None:
         for incident in (incidents or []):
             severity_value = incident.severity.value if hasattr(incident.severity, "value") else incident.severity
             category_value = (
@@ -233,9 +297,6 @@ class EvidenceStore:
                 (obs_id, severity_value, incident.description, category_value, source_value,
                  confirmed_value, resolution_value),
             )
-
-        self._conn.commit()
-        return obs_id
 
     def get_observations(self, agent_id: Optional[str] = None) -> List[StoredObservation]:
         """Возвращает наблюдения, все или только по agent_id, вместе с их инцидентами.
@@ -273,6 +334,8 @@ class EvidenceStore:
                     request_count=obs_row[10], schema_version=obs_row[11], collector=obs_row[12], source=obs_row[13],
                     execution_status=obs_row[14], duration_seconds=obs_row[15],
                     model_version=obs_row[16], prompt_version=obs_row[17],
+                    framework_version=obs_row[18], observed_model_version=obs_row[19],
+                    task_outcome=obs_row[20],
                     incidents=[],
                 ))
             # LEFT JOIN даёт одну строку с NULL-инцидентом для наблюдений
@@ -309,6 +372,8 @@ class EvidenceStore:
                 "schema_version": o.schema_version, "collector": o.collector, "source": o.source,
                 "execution_status": o.execution_status, "duration_seconds": o.duration_seconds,
                 "model_version": o.model_version, "prompt_version": o.prompt_version,
+                "framework_version": o.framework_version, "observed_model_version": o.observed_model_version,
+                "task_outcome": o.task_outcome,
                 "incidents": o.incidents,
             }
             for o in observations
@@ -328,6 +393,7 @@ class EvidenceStore:
                 "declared_confidence", "genome_hash", "genome_version", "trust_model_version",
                 "evaluation_period", "request_count", "schema_version", "collector", "source",
                 "execution_status", "duration_seconds", "model_version", "prompt_version",
+                "framework_version", "observed_model_version", "task_outcome",
                 "n_incidents", "n_minor", "n_moderate", "n_severe",
             ])
             for o in observations:
@@ -340,6 +406,7 @@ class EvidenceStore:
                     o.declared_confidence, o.genome_hash, o.genome_version, o.trust_model_version,
                     o.evaluation_period, o.request_count, o.schema_version, o.collector, o.source,
                     o.execution_status, o.duration_seconds, o.model_version, o.prompt_version,
+                    o.framework_version, o.observed_model_version, o.task_outcome,
                     len(o.incidents), counts["minor"], counts["moderate"], counts["severe"],
                 ])
         return path
@@ -379,5 +446,6 @@ def replay_into_evaluation_layer(store: EvidenceStore, layer, agent_id: Optional
             confidence=obs.declared_confidence or "High",
             incidents=incidents,
             timestamp=datetime.fromisoformat(obs.timestamp),
+            genome_hash=obs.genome_hash,
         )
     return len(observations)

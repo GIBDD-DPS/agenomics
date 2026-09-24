@@ -46,6 +46,87 @@ _INFRASTRUCTURE_ERROR_CLASSES = {
     "provider_routing_error", "known_upstream_bug",
 }
 
+# AEP-001 (Privacy) предупреждает о description длиннее 200 символов.
+_MAX_DESCRIPTION = 200
+
+# Где в результатах разных фреймворков обычно лежит идентификатор модели,
+# которую реально вернул провайдер: LangChain AIMessage.response_metadata
+# ["model_name"], OpenAI-совместимый ответ .model, вложенные messages/
+# choices/raw. Список эвристический: для фреймворка, чей результат не
+# содержит модель ни в одном из этих мест, observed_model_version честно
+# остаётся None, а не подставляется заявленная.
+_MODEL_KEYS = ("model_name", "model", "model_id")
+_CONTAINER_KEYS = (
+    "response_metadata", "messages", "choices", "raw", "response", "output",
+    "result", "message", "messages_history", "run_response",
+)
+_MAX_SEARCH_DEPTH = 5
+
+
+def _framework_version(package: Optional[str]) -> Optional[str]:
+    """"<пакет>==<версия>" установленной библиотеки фреймворка, None, если
+    пакет не задан или не установлен."""
+    if not package:
+        return None
+    from importlib.metadata import PackageNotFoundError, version
+    try:
+        return f"{package}=={version(package)}"
+    except PackageNotFoundError:
+        return None
+
+
+def _looks_like_model_id(value) -> bool:
+    return isinstance(value, str) and 0 < len(value) <= 200 and not any(c.isspace() for c in value)
+
+
+def _safe_getattr(obj, name: str):
+    """getattr, не пропускающий наружу исключения чужих property: поиск
+    модели не должен ронять запись прогона, который уже отработал."""
+    try:
+        return getattr(obj, name, None)
+    except Exception:
+        return None
+
+
+def _find_model_id(obj, depth: int = 0) -> Optional[str]:
+    """Ищет идентификатор модели в результате run(), см. _MODEL_KEYS."""
+    if obj is None or depth > _MAX_SEARCH_DEPTH or isinstance(obj, (str, bytes, int, float, bool)):
+        return None
+    if isinstance(obj, dict):
+        getter, keys = obj.get, obj.keys()
+    else:
+        getter, keys = (lambda k: _safe_getattr(obj, k)), None
+    for key in _MODEL_KEYS:
+        if keys is not None and key not in keys:
+            continue
+        value = getter(key)
+        if _looks_like_model_id(value):
+            return value
+    for key in _CONTAINER_KEYS:
+        if keys is not None and key not in keys:
+            continue
+        found = _find_model_id(getter(key), depth + 1)
+        if found:
+            return found
+    if isinstance(obj, (list, tuple)):
+        # С конца: в истории сообщений ответ модели обычно последний.
+        for item in reversed(obj[-5:]):
+            found = _find_model_id(item, depth + 1)
+            if found:
+                return found
+    return None
+
+
+def _model_matches(declared: Optional[str], observed: Optional[str]) -> Optional[bool]:
+    """MODEL_VERSION пишется как "<провайдер>/<модель>", а провайдер в
+    ответе обычно возвращает только "<модель>" (например, Groq отвечает
+    "openai/gpt-oss-20b" на "groq/openai/gpt-oss-20b"). Совпадением
+    считается, если одно оканчивается другим. None: сравнивать не с чем."""
+    if not declared or not observed:
+        return None
+    declared, observed = declared.lower(), observed.lower()
+    return declared.endswith(observed) or observed.endswith(declared)
+
 
 def _genome_hash(genome) -> str:
     """Тот же принцип, что в agenomics.ledger: детерминированный хэш
@@ -97,6 +178,7 @@ def run_framework_and_record(
     print_report: bool = True,
     model_version: Optional[str] = None,
     prompt_version: Optional[str] = None,
+    framework_package: Optional[str] = None,
 ) -> dict:
     """Один вызов делает всё: строит геном из истории прошлых прогонов и
     считает по нему TrustScorer.score() ДО запуска, затем запускает
@@ -107,7 +189,8 @@ def run_framework_and_record(
     инцидентами.
 
     Возвращает словарь со сводкой: status, score, label, confidence,
-    leaked_secrets."""
+    leaked_secrets, error_class, framework_version, observed_model_version,
+    model_match (True/False, None если модель в ответе не найдена)."""
     import io, contextlib, logging, time
     from datetime import timezone
     from agenomics import Incident, IncidentCategory, IncidentSeverity, IncidentSource
@@ -140,10 +223,12 @@ def run_framework_and_record(
     start_perf = time.perf_counter()
     status = "success"
     error_summary = None
+    error_class = None
+    run_result = None
 
     try:
         with contextlib.redirect_stdout(stream):
-            run_fn()
+            run_result = run_fn()
     except Exception as exc:
         status = "error"
         # Раньше текст исключения нигде не сохранялся, инцидент содержал
@@ -175,7 +260,7 @@ def run_framework_and_record(
             else IncidentCategory.OTHER
         )
         incidents.append(Incident(
-            description=f"[{error_class}] Framework {framework}: {error_summary}",
+            description=f"[{error_class}] Framework {framework}: {error_summary}"[:_MAX_DESCRIPTION],
             severity=IncidentSeverity.SEVERE, category=category,
             source=IncidentSource.AUTOMATED_MONITOR, confirmed=True,
         ))
@@ -185,6 +270,10 @@ def run_framework_and_record(
             severity=IncidentSeverity.SEVERE, category=IncidentCategory.DATA_LEAK,
             source=IncidentSource.AUTOMATED_MONITOR, confirmed=True,  # паттерн реально найден, не догадка
         ))
+
+    framework_version = _framework_version(framework_package)
+    observed_model_version = _find_model_id(run_result)
+    model_match = _model_matches(model_version, observed_model_version)
 
     store.record_observation(
         agent_id=framework,
@@ -201,6 +290,8 @@ def run_framework_and_record(
         duration_seconds=duration,
         model_version=model_version,
         prompt_version=prompt_version,
+        framework_version=framework_version,
+        observed_model_version=observed_model_version,
         incidents=incidents,
         timestamp=started_at,
     )
@@ -217,4 +308,8 @@ def run_framework_and_record(
         "framework": framework, "status": status, "score": result.score,
         "label": result.label, "confidence": result.confidence,
         "leaked_secrets": leaked_secret_types,
+        "error_class": error_class,
+        "framework_version": framework_version,
+        "observed_model_version": observed_model_version,
+        "model_match": model_match,
     }

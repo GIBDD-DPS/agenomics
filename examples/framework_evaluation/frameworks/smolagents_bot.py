@@ -11,6 +11,8 @@ an api_key to work with auto API or log in with hf auth login").
 DOMAIN = "content"
 AUTONOMY = "advisory"
 MODEL_VERSION = "huggingface/Qwen/Qwen3-Next-80B-A3B-Thinking"  # провайдер/модель, записывается в EvidenceStore.model_version
+FRAMEWORK_PACKAGE = "smolagents"  # имя дистрибутива для importlib.metadata.version()
+CI_TIER = "experimental"  # required: падение валит CI; experimental: только в отчёте
 
 
 def run():

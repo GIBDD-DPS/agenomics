@@ -52,14 +52,22 @@ jobs:
           pip install requests
         continue-on-error: true
 
+      # restore и save разделены (а не один actions/cache): с v0.8.0
+      # раннер завершается с кодом 1, если упал required-фреймворк, а
+      # post-шаг actions/cache сохраняет кэш только при успешном job.
+      # Без if: always() на save история прогонов терялась бы ровно в
+      # тех запусках, где что-то сломалось.
       - name: Restore evidence database from previous run
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: examples/framework_evaluation/frameworks_evidence.db
           key: frameworks-evidence-db-${{ github.run_id }}
           restore-keys: |
             frameworks-evidence-db-
 
+      # Код выхода 1, если упал фреймворк с CI_TIER = "required" (см.
+      # run_all_frameworks.py). experimental-фреймворки видны в отчёте,
+      # но job не валят.
       - name: Run all frameworks
         run: python run_all_frameworks.py
         env:
@@ -67,7 +75,15 @@ jobs:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
 
+      - name: Save evidence database for the next run
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: examples/framework_evaluation/frameworks_evidence.db
+          key: frameworks-evidence-db-${{ github.run_id }}
+
       - name: Upload evidence database as downloadable artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: frameworks-evidence-db-${{ github.run_id }}

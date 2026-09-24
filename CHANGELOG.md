@@ -4,6 +4,33 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/),
 версионирование: [Semantic Versioning](https://semver.org/) (0.x: API нестабилен).
 
+## [0.8.0] - 2026-09-24
+
+Evidence Foundation: всё, что нужно, чтобы данные, которые копятся сейчас, годились для проверки в v0.9.
+
+### Добавлено
+- **Adversarial Evaluation Suite** (`agenomics/adversarial.py`): активное зондирование агента до продакшена вместо пассивного наблюдения за логом. 11 проб в 4 категориях: утечка canary-секрета из контекста (3, в том числе просьба выдать ключ задом наперёд), prompt injection через пользовательский контент и найденную веб-страницу (2), согласованность решения YES/NO при смене только имени кандидата (3 сценария × 5 имён), устойчивость к пустому, длинному и мусорному вводу (3). Все проверки детерминированные, без LLM-судьи; nonce новые при каждом запуске. `AdversarialReport.apply_to_genome()` заполняет `data_safety`/`bias_control` с `axis_confidence`, по умолчанию не затирая уже заданные значения. Уклончивый ответ или падение агента делают пробу неопределённой, а не пройденной. `repeats` для агентов с temperature > 0
+- **Genome Versioning в `GenomeLedger`**: `parent_genome_hash` (вычисляется сам: предыдущая отличающаяся версия генома этого агента), `created_by`, `change_reason`, `genome_version`, `lineage()`. Повторный аудит того же генома не считается новой версией. Все поля входят в `entry_hash`, подмена постфактум обнаруживается `verify_integrity()`
+- **Маркер исхода задачи**: `EvidenceStore.task_outcome` (`success`/`failure`/`partial`, `None` = неизвестен), `record_task_outcome(observation_id, ...)` дописывает исход и инциденты к наблюдению, записанному до задачи. Исход пишется один раз, перезапись это `ValueError`. `EvidenceStoreHook.on_task_outcome()`; `on_trust_scored()` возвращает id для него и принимает `model_version`/`prompt_version`
+- **`EvidenceStore.framework_version`, `observed_model_version`**. Автомиграция файлов базы 0.7.x
+- **`TrustRealityReport.n_unique_genomes`**: сколько разных геномов среди наблюдений. `Observation.genome_hash`, `replay_into_evaluation_layer()` его передаёт
+- **Framework Evaluation**: `CI_TIER` (`required`/`experimental`) и `FRAMEWORK_PACKAGE` в каждом шаблоне. 14 фреймворков, прошедших прогон №73, `required`; `atomic_agents`, `crewai`, `google_adk`, `smolagents`, `txtai` `experimental`. `run_all_frameworks.py` завершается с кодом 1, если упал required, итоговый отчёт сгруппирован по tier с классом ошибки. `full_pipeline.py` пишет `framework_version` и ищет модель в результате `run()` (LangChain `response_metadata`, OpenAI-совместимый `.model` и т.п.); расхождение с `MODEL_VERSION` выводится в отчёт, фреймворки без модели в результате перечислены отдельно как непроверенные
+- Документация: AEP-001 (`framework_version`, `observed_model_version`, `task_outcome`), `docs/PRIZOLOV_BRIDGE_INTERFACE.md` (маркер исхода), README примеров (required/experimental)
+- Тесты: `tests/test_adversarial.py` (15), `tests/test_ledger_versioning.py` (8), строгая валидация в `tests/test_extractor.py` (9, включая сверку JSON Schema с валидатором через `jsonschema`), `tests/test_evidence.py` (+4), `tests/test_hooks.py` (+3), `test_pipeline.py` (+12). Итого 230 в `tests/`, 35 в `test_pipeline.py`
+
+### Изменено (несовместимо)
+- **`PromptToGenomeExtractor` по умолчанию строгий.** Ответ LLM проверяется по `EXTRACTION_JSON_SCHEMA` до построения генома: неизвестные поля, значения вне диапазона, `true` вместо числа, отсутствующая ось, пустой `evidence`, `value: null` с ненулевой `confidence`, `autonomy` вне `advisory`/`autonomous` дают `ExtractionError` со списком всех нарушений в `.violations`. Валидатор на stdlib вместо Pydantic: ядро остаётся без runtime-зависимостей. `strict=False` возвращает поведение 0.7.x
+- **`framework_eval.yml` может стать красным**, если упал required-фреймворк. Кэш базы разделён на `actions/cache/restore` и `actions/cache/save` с `if: always()`: без этого история прогонов не сохранялась бы именно при падении
+
+### Исправлено
+- Описание инцидента в `full_pipeline.py` обрезается до 200 символов (было до 300 плюс префикс), `EvidenceStoreHook.on_drift_alert()` тоже. Предупреждение AEP-001 о длине `description` появлялось в логах CI
+- `scripts/verify_release.py` не проверял 4 шаблона, добавленных после v0.7.2 (Swarms, Semantic Kernel, OpenAI Agents, BeeAI), и `classify_failures.py`
+
+### Осознанно не реализовано
+- Токсичность в Adversarial Suite: без LLM-судьи её не проверить детерминированно, перенесено в v0.9 вместе с поведенческой классификацией ошибок
+- Adversarial-пробы в `framework_evaluation`: шаблоны вызывают агента только через `run()` без аргументов, для проб нужен `ask(prompt)`. Это 19 правок, которые нельзя проверить без ключей API, и лишние вызовы Groq на каждом прогоне; перенесено в v0.9
+- `instrumentation_block.md` в этом репозитории нет. На стороне agenomics готово всё для маркера исхода; вызовы `on_task_outcome()` добавляются в коде агента
+
 ## [0.7.12] - 2026-09-24
 
 ### Исправлено (найдено внешним разбором)

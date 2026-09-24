@@ -8,6 +8,8 @@
 DOMAIN = "content"
 AUTONOMY = "advisory"
 MODEL_VERSION = "google/gemini-2.5-flash"  # провайдер/модель, записывается в EvidenceStore.model_version
+FRAMEWORK_PACKAGE = "google-adk"  # имя дистрибутива для importlib.metadata.version()
+CI_TIER = "experimental"  # required: падение валит CI; experimental: только в отчёте
 
 
 def run():

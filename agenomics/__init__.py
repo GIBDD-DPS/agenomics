@@ -6,7 +6,7 @@ Agenomics. Genetics for AI Agents.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.7.12
+Версия: 0.8.0
 
 Формальная спецификация уровней конвейера (Genome → Genome Schema →
 Phenotype → Trust Model → Compatibility Model → Drift Model →
@@ -34,10 +34,16 @@ from .ledger import GenomeLedger, LedgerEntry
 from .matchmaker import GenomeMatchmaker, MatchResult
 from .chain import ChainRiskAggregator, ChainRiskResult
 from .heatmap import CompatibilityMatrix, build_compatibility_matrix, render_heatmap_svg
-from .extractor import PromptToGenomeExtractor, ExtractionError, ExtractionResult, AxisEvidence
+from .extractor import (
+    PromptToGenomeExtractor, ExtractionError, ExtractionResult, AxisEvidence,
+    EXTRACTION_JSON_SCHEMA, validate_extraction_payload,
+)
 from .evaluation import RealWorldEvaluationLayer, Observation, TrustRealityReport
 from .evidence import EvidenceStore, StoredObservation, replay_into_evaluation_layer, AEP_SCHEMA_VERSION
 from .hooks import EvidenceStoreHook
+from .adversarial import (
+    AdversarialSuite, AdversarialReport, AxisEstimate, ProbeResult, adversarial_report_text,
+)
 from .reports import trust_report, compatibility_report, trust_report_docx
 
 __all__ = [
@@ -56,10 +62,12 @@ __all__ = [
     "ChainRiskAggregator", "ChainRiskResult",
     "CompatibilityMatrix", "build_compatibility_matrix", "render_heatmap_svg",
     "PromptToGenomeExtractor", "ExtractionError", "ExtractionResult", "AxisEvidence",
+    "EXTRACTION_JSON_SCHEMA", "validate_extraction_payload",
     "RealWorldEvaluationLayer", "Observation", "TrustRealityReport",
     "EvidenceStore", "StoredObservation", "replay_into_evaluation_layer", "AEP_SCHEMA_VERSION",
+    "AdversarialSuite", "AdversarialReport", "AxisEstimate", "ProbeResult", "adversarial_report_text",
     "EvidenceStoreHook",
     "trust_report", "compatibility_report", "trust_report_docx",
 ]
 
-__version__ = "0.7.12"
+__version__ = "0.8.0"

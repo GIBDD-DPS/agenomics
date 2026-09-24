@@ -22,6 +22,11 @@ run_all_frameworks.py — автоматический раннер: авто-о
 Запуск вручную:
     python run_all_frameworks.py
 
+Код выхода (v0.8.0): 1, если упал хотя бы один фреймворк с
+CI_TIER = "required", иначе 0. Падения experimental-фреймворков видны
+в отчёте, но CI не валят. Шаблон без CI_TIER считается experimental:
+новый фреймворк сначала должен доказать стабильность.
+
 Запуск по расписанию — см. .github/workflows/framework_eval.yml
 (GitHub Actions с cron) в этом же комплекте, или обычный cron:
     0 */6 * * * cd /path/to/project && python run_all_frameworks.py >> run.log 2>&1
@@ -37,6 +42,30 @@ from full_pipeline import run_framework_and_record
 
 FRAMEWORKS_DIR = Path(__file__).parent / "frameworks"
 DB_PATH = Path(__file__).parent / "frameworks_evidence.db"
+CI_TIERS = ("required", "experimental")
+
+
+def summarize(results: list) -> tuple:
+    """Итоговый отчёт и код выхода. Вынесено из main(), чтобы логику
+    required/experimental можно было проверить без запуска фреймворков."""
+    lines = []
+    for tier in CI_TIERS:
+        tier_results = [r for r in results if r["ci_tier"] == tier]
+        if not tier_results:
+            continue
+        failed = [r for r in tier_results if r["status"] == "error"]
+        lines.append(f"{tier.upper()}: {len(tier_results) - len(failed)}/{len(tier_results)} прошли")
+        for r in failed:
+            lines.append(f"  ❌ {r['framework']} [{r.get('error_class') or 'other'}]")
+    mismatched = [r for r in results if r.get("model_match") is False]
+    for r in mismatched:
+        lines.append(f"⚠️ {r['framework']}: заявлена модель {r['model_version']}, "
+                     f"провайдер вернул {r['observed_model_version']}")
+    unobserved = [r["framework"] for r in results if r["status"] == "success" and r.get("model_match") is None]
+    if unobserved:
+        lines.append(f"Модель в ответе не найдена (сверка не проведена): {', '.join(unobserved)}")
+    required_failed = [r for r in results if r["ci_tier"] == "required" and r["status"] == "error"]
+    return "\n".join(lines), (1 if required_failed else 0)
 
 
 def discover_frameworks() -> dict:
@@ -44,7 +73,8 @@ def discover_frameworks() -> dict:
     Сканирует frameworks/*.py, импортирует каждый файл как модуль и
     берёт из него функцию run() (обязательна) + DOMAIN/AUTONOMY/
     MODEL_VERSION/PROMPT_VERSION (опциональны для раннера; MODEL_VERSION
-    обязателен для шаблонов в этой папке, это проверяет test_pipeline.py). Файлы без run() пропускаются с предупреждением,
+    обязателен для шаблонов в этой папке, это проверяет test_pipeline.py),
+    FRAMEWORK_PACKAGE и CI_TIER. Файлы без run() пропускаются с предупреждением,
     а не роняют весь скрипт — тот же принцип отказоустойчивости,
     что и в capture_log_v2.py.
     """
@@ -75,7 +105,13 @@ def discover_frameworks() -> dict:
             "autonomy": getattr(module, "AUTONOMY", "advisory"),
             "model_version": getattr(module, "MODEL_VERSION", None),
             "prompt_version": getattr(module, "PROMPT_VERSION", None),
+            "framework_package": getattr(module, "FRAMEWORK_PACKAGE", None),
+            "ci_tier": getattr(module, "CI_TIER", "experimental"),
         }
+        if discovered[name]["ci_tier"] not in CI_TIERS:
+            print(f"[WARN] {py_file.name}: CI_TIER={discovered[name]['ci_tier']!r} "
+                  f"не из {CI_TIERS}, считается experimental.")
+            discovered[name]["ci_tier"] = "experimental"
     return discovered
 
 
@@ -95,8 +131,11 @@ def main():
             name, config["run"], store,
             domain=config["domain"], autonomy=config["autonomy"],
             model_version=config["model_version"], prompt_version=config["prompt_version"],
+            framework_package=config["framework_package"],
             print_report=False,
         )
+        summary["ci_tier"] = config["ci_tier"]
+        summary["model_version"] = config["model_version"]
         results.append(summary)
         marker = "✅" if summary["status"] == "success" else "❌"
         leak_marker = " ⚠️ УТЕЧКА" if summary["leaked_secrets"] else ""
@@ -110,7 +149,10 @@ def main():
     print(f"Итого: {len(results)} фреймворков, {len(failed)} упало, {len(leaked)} с находками утечек")
     print(f"Данные сохранены в {DB_PATH} — переживут следующий запуск (накопление истории)")
 
-    return 0
+    report, exit_code = summarize(results)
+    print()
+    print(report)
+    return exit_code
 
 
 if __name__ == "__main__":

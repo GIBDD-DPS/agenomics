@@ -45,6 +45,7 @@ CRITICAL_FILES = [
     "agenomics/evaluation.py",
     "agenomics/evidence.py",
     "agenomics/hooks.py",
+    "agenomics/adversarial.py",
     "agenomics/cli.py",
     "agenomics/reports.py",
     "agenomics/api.py",
@@ -60,17 +61,19 @@ CRITICAL_FILES = [
     "examples/framework_evaluation/genome_from_capture.py",
     "examples/framework_evaluation/full_pipeline.py",
     "examples/framework_evaluation/run_all_frameworks.py",
+    "examples/framework_evaluation/classify_failures.py",
     ".github/workflows/tests.yml",
     ".github/workflows/framework_eval.yml",
 ]
 
-# 15 активных шаблонов фреймворков, добавлены отдельным списком, потому
+# 19 активных шаблонов фреймворков, добавлены отдельным списком, потому
 # что именно они терялись чаще всего (8 из 14 в одном раунде).
 FRAMEWORK_TEMPLATES = [
     "langchain_bot.py", "autogen_bot.py", "crewai_bot.py", "llamaindex_bot.py",
     "langgraph_bot.py", "haystack_bot.py", "camel_bot.py", "griptape_bot.py",
     "agno_bot.py", "pydantic_ai_bot.py", "dspy_bot.py", "atomic_agents_bot.py",
     "smolagents_bot.py", "google_adk_bot.py", "txtai_bot.py",
+    "swarms_bot.py", "semantic_kernel_bot.py", "openai_agents_bot.py", "beeai_bot.py",
 ]
 
 
