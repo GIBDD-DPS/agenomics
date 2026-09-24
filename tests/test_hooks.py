@@ -102,6 +102,50 @@ def test_source_and_collector_are_recorded():
     assert obs.source == "agent-fleet-1"
 
 
+
+# --- v0.8.0: маркер исхода задачи ----------------------------------------
+
+def test_task_outcome_recorded_on_pre_task_observation():
+    from agenomics import Incident, IncidentCategory, IncidentSeverity
+    store = EvidenceStore(":memory:")
+    hook = EvidenceStoreHook(store)
+    obs_id = hook.on_trust_scored("agent-1", _make_result(), model_version="groq/x", prompt_version="v2")
+    assert store.get_observations("agent-1")[0].task_outcome is None  # исход ещё неизвестен
+    hook.on_task_outcome(obs_id, "failure", [
+        Incident("wrong prediction", IncidentSeverity.MODERATE, category=IncidentCategory.RESPONSE_QUALITY),
+    ])
+    obs = store.get_observations("agent-1")[0]
+    assert obs.task_outcome == "failure"
+    assert obs.model_version == "groq/x" and obs.prompt_version == "v2"
+    assert obs.incidents[0]["category"] == "response_quality"
+    assert store.count_observations("agent-1") == 1  # то же наблюдение, не новое
+
+
+def test_task_outcome_cannot_be_overwritten():
+    store = EvidenceStore(":memory:")
+    hook = EvidenceStoreHook(store)
+    obs_id = hook.on_trust_scored("agent-1", _make_result())
+    hook.on_task_outcome(obs_id, "success")
+    try:
+        hook.on_task_outcome(obs_id, "failure")
+        assert False, "перезапись исхода должна быть запрещена"
+    except ValueError:
+        pass
+    assert store.get_observations("agent-1")[0].task_outcome == "success"
+
+
+def test_task_outcome_rejects_unknown_value_and_missing_observation():
+    store = EvidenceStore(":memory:")
+    hook = EvidenceStoreHook(store)
+    obs_id = hook.on_trust_scored("agent-1", _make_result())
+    for bad_call in (lambda: hook.on_task_outcome(obs_id, "great"), lambda: hook.on_task_outcome(9999, "success")):
+        try:
+            bad_call()
+            assert False, "ожидался ValueError"
+        except ValueError:
+            pass
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     for t in tests:

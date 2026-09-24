@@ -9,12 +9,16 @@ run() (например, "groq/openai/gpt-oss-20b"). Пишется в
 EvidenceStore.model_version, чтобы смена модели не выглядела в истории
 как дрейф самого агента.
 Опционально: DOMAIN, AUTONOMY (иначе используются значения по умолчанию),
-PROMPT_VERSION (если версионируете системный промпт).
+PROMPT_VERSION (если версионируете системный промпт),
+FRAMEWORK_PACKAGE (pip-имя библиотеки, иначе framework_version не пишется),
+CI_TIER ("required" или "experimental", по умолчанию "experimental").
 """
 
 DOMAIN = "content"      # или "finance"/"support"/"health" и т.д. — см. docs/METHODOLOGY.md
 AUTONOMY = "advisory"   # "advisory" или "autonomous"
 MODEL_VERSION = "groq/openai/gpt-oss-20b"  # замените на реально вызываемую модель
+FRAMEWORK_PACKAGE = "langchain"  # pip-имя библиотеки фреймворка, её версия пишется в EvidenceStore
+CI_TIER = "experimental"  # новый шаблон experimental, пока не доказал стабильность в CI
 
 
 def run():

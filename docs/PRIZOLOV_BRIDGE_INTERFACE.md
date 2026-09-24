@@ -107,6 +107,40 @@ if drift_report.alert:
 **из вашего кода**, в нужных местах вашего оркестратора, а это и есть
 та часть, для которой нужны реальные сигнатуры `prizolov_market`.
 
+## Маркер исхода задачи (v0.8.0)
+
+Три метода выше сообщают факты: геном извлечён, score посчитан, дрейф
+замечен. Для проверки, предсказывает ли score что-нибудь, нужен ещё и
+исход: решил ли агент задачу. `on_task_outcome()` дописывает его в то же
+наблюдение, в котором score записан **до** выполнения задачи:
+
+```python
+from agenomics import Incident, IncidentCategory, IncidentSeverity
+
+obs_id = hook.on_trust_scored(
+    agent.id, result,
+    model_version="groq/openai/gpt-oss-20b", prompt_version="v3",
+)                                    # до выполнения задачи
+
+prediction = agent.run(task)         # ваш код
+
+hook.on_task_outcome(obs_id, "failure", [
+    Incident("прогноз не сбылся", IncidentSeverity.MODERATE,
+             category=IncidentCategory.RESPONSE_QUALITY),
+])                                   # когда исход стал известен
+```
+
+Порядок важен: если считать score после задачи, по тем же данным, что
+определили её исход, их связь возникает по построению (см. CHANGELOG
+0.7.12). Исход пишется один раз, повторный вызов это `ValueError`.
+
+`outcome`: `"success"`, `"failure"` или `"partial"`. Что считать успехом,
+решает ваша система (сбылся прогноз, пользователь принял ответ, тикет
+закрыт), Agenomics этого знать не может. Файл маркеров на стороне
+вашего агента (`instrumentation_block.md`) в этом репозитории не
+хранится: вызовы `on_task_outcome()` нужно добавить туда, где ваш
+оркестратор узнаёт исход.
+
 ## Почему я не пишу это как готовый пакет `prizolov-agenomics-bridge`
 
 1. Я не вижу реальных сигнатур `Metrics_Agent`/`Trace_Collector`/`Trigger`,

@@ -9,6 +9,8 @@ base_url через параметр async_client. Требует GROQ_API_KEY.
 DOMAIN = "content"
 AUTONOMY = "advisory"
 MODEL_VERSION = "groq/openai/gpt-oss-20b"  # провайдер/модель, записывается в EvidenceStore.model_version
+FRAMEWORK_PACKAGE = "semantic-kernel"  # имя дистрибутива для importlib.metadata.version()
+CI_TIER = "required"  # required: падение валит CI; experimental: только в отчёте
 
 
 def run():

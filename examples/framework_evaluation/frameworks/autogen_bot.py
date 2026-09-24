@@ -11,6 +11,8 @@ API переехал в отдельный пакет). Устанавливай
 DOMAIN = "content"
 AUTONOMY = "advisory"
 MODEL_VERSION = "groq/openai/gpt-oss-20b"  # провайдер/модель, записывается в EvidenceStore.model_version
+FRAMEWORK_PACKAGE = "autogen"  # имя дистрибутива для importlib.metadata.version()
+CI_TIER = "required"  # required: падение валит CI; experimental: только в отчёте
 
 
 def run():

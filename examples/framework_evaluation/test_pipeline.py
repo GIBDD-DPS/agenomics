@@ -309,6 +309,170 @@ def test_timeout_is_not_assumed_infrastructure():
     store.close()
 
 
+
+# --- v0.8.0: required/experimental, framework_version, сверка модели -----
+
+def test_every_template_declares_valid_ci_tier_and_installed_package_name():
+    from run_all_frameworks import CI_TIERS
+    for p in _framework_templates():
+        source = p.read_text(encoding="utf-8")
+        assert _module_constant(source, "CI_TIER") in CI_TIERS, p.name
+        assert _module_constant(source, "FRAMEWORK_PACKAGE"), p.name
+
+
+def test_framework_package_is_installed_in_ci_workflow():
+    """FRAMEWORK_PACKAGE должен совпадать с тем, что реально ставит
+    framework_eval.yml, иначе framework_version всегда будет None."""
+    from pathlib import Path
+    workflow = (Path(__file__).resolve().parents[2] / ".github/workflows/framework_eval.yml").read_text(encoding="utf-8")
+    missing = []
+    for p in _framework_templates():
+        package = _module_constant(p.read_text(encoding="utf-8"), "FRAMEWORK_PACKAGE")
+        if package not in workflow:
+            missing.append(f"{p.name}: {package}")
+    assert not missing, missing
+
+
+def test_framework_version_recorded_for_installed_package():
+    store = EvidenceStore(":memory:")
+    summary = run_framework_and_record("fw", lambda: None, store, print_report=False, framework_package="pytest")
+    assert summary["framework_version"].startswith("pytest==")
+    assert store.get_observations("fw")[0].framework_version == summary["framework_version"]
+    missing = run_framework_and_record("fw2", lambda: None, store, print_report=False,
+                                       framework_package="definitely-not-installed-pkg")
+    assert missing["framework_version"] is None
+    store.close()
+
+
+class _FakeAIMessage:
+    def __init__(self, model_name):
+        self.content = "answer"
+        self.response_metadata = {"model_name": model_name, "token_usage": {}}
+
+
+class _FakeChatCompletion:
+    def __init__(self, model):
+        self.model = model
+        self.choices = []
+
+
+def test_observed_model_found_in_langchain_style_result():
+    from full_pipeline import _find_model_id
+    result = {"messages": [object(), _FakeAIMessage("openai/gpt-oss-20b")]}
+    assert _find_model_id(result) == "openai/gpt-oss-20b"
+
+
+def test_observed_model_found_in_openai_style_result():
+    from full_pipeline import _find_model_id
+    assert _find_model_id(_FakeChatCompletion("openai/gpt-oss-20b")) == "openai/gpt-oss-20b"
+
+
+def test_observed_model_ignores_non_string_model_objects():
+    """У многих агентов .model это объект клиента, а не строка: его нельзя
+    выдавать за идентификатор модели."""
+    from full_pipeline import _find_model_id
+
+    class Agent:
+        model = object()
+    assert _find_model_id(Agent()) is None
+    assert _find_model_id("plain text result") is None
+    assert _find_model_id(None) is None
+
+
+def test_model_match_and_mismatch_recorded():
+    store = EvidenceStore(":memory:")
+    ok = run_framework_and_record(
+        "fw", lambda: _FakeChatCompletion("openai/gpt-oss-20b"), store, print_report=False,
+        model_version="groq/openai/gpt-oss-20b",
+    )
+    assert ok["model_match"] is True
+    bad = run_framework_and_record(
+        "fw", lambda: _FakeChatCompletion("llama-3.1-8b-instant"), store, print_report=False,
+        model_version="groq/openai/gpt-oss-20b",
+    )
+    assert bad["model_match"] is False
+    assert store.get_observations("fw")[-1].observed_model_version == "llama-3.1-8b-instant"
+    unknown = run_framework_and_record("fw", lambda: "text", store, print_report=False,
+                                       model_version="groq/openai/gpt-oss-20b")
+    assert unknown["model_match"] is None
+    store.close()
+
+
+def test_incident_description_fits_aep001_privacy_limit():
+    import warnings
+    store = EvidenceStore(":memory:")
+
+    def long_error():
+        raise RuntimeError("x" * 1000)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # предупреждение AEP-001 о длине стало бы ошибкой
+        run_framework_and_record("fw", long_error, store, print_report=False)
+    assert len(store.get_observations("fw")[0].incidents[0]["description"]) <= 200
+    store.close()
+
+
+def _result(framework, tier, status, **extra):
+    base = {"framework": framework, "ci_tier": tier, "status": status, "model_match": True,
+            "model_version": "m", "observed_model_version": "m", "error_class": None}
+    base.update(extra)
+    return base
+
+
+def test_required_failure_fails_ci_experimental_does_not():
+    from run_all_frameworks import summarize
+    _, code = summarize([_result("a", "required", "success"), _result("b", "experimental", "error")])
+    assert code == 0
+    report, code = summarize([_result("a", "required", "error", error_class="rate_limit"),
+                              _result("b", "experimental", "success")])
+    assert code == 1
+    assert "REQUIRED: 0/1 прошли" in report
+    assert "a [rate_limit]" in report
+
+
+def test_summary_reports_model_mismatch_and_unobserved():
+    from run_all_frameworks import summarize
+    report, _ = summarize([
+        _result("a", "required", "success", model_match=False, observed_model_version="other"),
+        _result("b", "required", "success", model_match=None),
+    ])
+    assert "a: заявлена модель m, провайдер вернул other" in report
+    assert "сверка не проведена): b" in report
+
+
+def test_template_without_ci_tier_is_experimental():
+    import tempfile
+    from pathlib import Path
+    import run_all_frameworks
+    original = run_all_frameworks.FRAMEWORKS_DIR
+    with tempfile.TemporaryDirectory() as tmp:
+        Path(tmp, "new_bot.py").write_text("def run():\n    return None\n", encoding="utf-8")
+        Path(tmp, "typo_bot.py").write_text("CI_TIER = 'requried'\ndef run():\n    return None\n", encoding="utf-8")
+        run_all_frameworks.FRAMEWORKS_DIR = Path(tmp)
+        try:
+            discovered = run_all_frameworks.discover_frameworks()
+        finally:
+            run_all_frameworks.FRAMEWORKS_DIR = original
+    assert discovered["new_bot"]["ci_tier"] == "experimental"
+    assert discovered["typo_bot"]["ci_tier"] == "experimental"
+
+
+
+def test_model_search_survives_raising_properties():
+    from full_pipeline import _find_model_id
+
+    class Weird:
+        @property
+        def model(self):
+            raise RuntimeError("lazy client not initialised")
+
+        @property
+        def response_metadata(self):
+            return {"model_name": "openai/gpt-oss-20b"}
+
+    assert _find_model_id(Weird()) == "openai/gpt-oss-20b"
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     passed = 0

@@ -3,6 +3,7 @@
 
 # Для тестов:
 pytest>=7.0
+jsonschema>=4.18  # сверка EXTRACTION_JSON_SCHEMA с валидатором на stdlib (tests/test_extractor.py)
 
 # Для веб-API (agenomics/api.py, деплой через amvera.yml):
 fastapi>=0.110

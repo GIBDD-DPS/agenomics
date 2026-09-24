@@ -526,3 +526,74 @@ def test_infrastructure_category_roundtrips_through_replay():
     layer = RealWorldEvaluationLayer()
     assert replay_into_evaluation_layer(store, layer, "agent-1") == 1
     store.close()
+
+
+# --- v0.8.0: framework_version, observed_model_version, независимость ----
+
+def test_framework_and_observed_model_version_persisted_and_exported():
+    store = EvidenceStore(":memory:")
+    store.record_observation(
+        "agent-1", 70.0, "Conditional", model_version="groq/openai/gpt-oss-20b",
+        framework_version="crewai==0.1.0", observed_model_version="openai/gpt-oss-20b",
+    )
+    obs = store.get_observations("agent-1")[0]
+    assert obs.framework_version == "crewai==0.1.0"
+    assert obs.observed_model_version == "openai/gpt-oss-20b"
+    with tempfile.TemporaryDirectory() as tmp:
+        with open(store.export_json(os.path.join(tmp, "o.json")), encoding="utf-8") as f:
+            assert json.load(f)[0]["framework_version"] == "crewai==0.1.0"
+        with open(store.export_csv(os.path.join(tmp, "o.csv")), encoding="utf-8") as f:
+            assert "observed_model_version" in f.readline()
+    store.close()
+
+
+def test_migrates_v0712_schema_file_missing_v080_columns():
+    import sqlite3
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = os.path.join(tmp, "v0712.db")
+        old = EvidenceStore(db_path)
+        old.close()
+        conn = sqlite3.connect(db_path)
+        # Имитируем файл 0.7.12: пересоздаём таблицу без колонок v0.8.0.
+        conn.executescript(
+            """
+            DROP TABLE observations;
+            CREATE TABLE observations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL, timestamp TEXT NOT NULL,
+                declared_score REAL NOT NULL, declared_label TEXT NOT NULL, declared_confidence TEXT,
+                genome_hash TEXT, genome_version TEXT, trust_model_version TEXT, evaluation_period TEXT,
+                request_count INTEGER, schema_version TEXT, collector TEXT, source TEXT,
+                execution_status TEXT, duration_seconds REAL, model_version TEXT, prompt_version TEXT
+            );
+            """
+        )
+        conn.commit()
+        conn.close()
+        store = EvidenceStore(db_path)
+        store.record_observation("a", 50.0, "Conditional", framework_version="x==1")
+        assert store.get_observations("a")[0].framework_version == "x==1"
+        store.close()
+
+
+def test_report_counts_unique_genomes_after_replay():
+    store = EvidenceStore(":memory:")
+    for i in range(12):
+        store.record_observation(
+            "agent-1", 60.0 + i, "Conditional", genome_hash="g1" if i < 10 else "g2",
+            incidents=[Incident("x", IncidentSeverity.MINOR)] if i % 3 == 0 else [],
+        )
+    layer = RealWorldEvaluationLayer()
+    replay_into_evaluation_layer(store, layer, "agent-1")
+    report = layer.trust_reality_report("agent-1")
+    assert report.n_observations == 12
+    assert report.n_unique_genomes == 2
+    assert "Уникальных геномов среди 12 наблюдений: 2" in report.detail
+    store.close()
+
+
+def test_report_unique_genomes_unknown_without_hashes():
+    layer = RealWorldEvaluationLayer(min_observations=1)
+    layer.record_raw_observation("a", 50.0, "Conditional")
+    layer.record_raw_observation("a", 60.0, "Conditional", incidents=[Incident("x", IncidentSeverity.MINOR)])
+    report = layer.trust_reality_report("a")
+    assert report.n_unique_genomes is None

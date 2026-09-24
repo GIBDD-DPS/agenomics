@@ -74,6 +74,7 @@ class Observation:
     declared_score: float
     declared_label: str
     incidents: List[Incident] = field(default_factory=list)
+    genome_hash: Optional[str] = None  # [v0.8.0] для подсчёта независимых геномов в отчёте
 
 
 def _evidence_strength(n: int) -> str:
@@ -107,6 +108,11 @@ class TrustRealityReport:
     incident_rate: Optional[float] = None  # средняя "нагрузка" инцидентов на наблюдение
     detail: str = ""
     evidence_strength: str = "insufficient"  # insufficient/exploratory/preliminary/validation_candidate/strong
+    # [v0.8.0] Сколько РАЗНЫХ геномов среди n_observations. 50 повторных
+    # прогонов одного генома это не 50 независимых агентов: evidence_strength
+    # считается по наблюдениям, а независимость по этому числу. None, если
+    # ни у одного наблюдения genome_hash не передан.
+    n_unique_genomes: Optional[int] = None
 
 
 class RealWorldEvaluationLayer:
@@ -129,6 +135,7 @@ class RealWorldEvaluationLayer:
         confidence: str = "High",
         incidents: Optional[List[Incident]] = None,
         timestamp: Optional[datetime] = None,
+        genome_hash: Optional[str] = None,
     ) -> Observation:
         """
         Низкоуровневая запись, принимает сырые score/label/confidence,
@@ -140,7 +147,7 @@ class RealWorldEvaluationLayer:
         ts = timestamp or datetime.now(timezone.utc)
         obs = Observation(
             timestamp=ts, declared_score=score, declared_label=label,
-            incidents=list(incidents or []),
+            incidents=list(incidents or []), genome_hash=genome_hash,
         )
         self._observations.setdefault(agent_id, []).append(obs)
         self._drift.record(agent_id, score, confidence, ts)
@@ -170,11 +177,13 @@ class RealWorldEvaluationLayer:
         """
         obs_list = self._observations.get(agent_id, [])
         n = len(obs_list)
+        known_hashes = {obs.genome_hash for obs in obs_list if obs.genome_hash is not None}
+        n_unique_genomes = len(known_hashes) if known_hashes else None
 
         if n < self._min_observations:
             return TrustRealityReport(
                 agent_id=agent_id, status="insufficient_data", n_observations=n,
-                evidence_strength=_evidence_strength(n),
+                evidence_strength=_evidence_strength(n), n_unique_genomes=n_unique_genomes,
                 detail=(
                     f"Нужно минимум {self._min_observations} наблюдений для "
                     f"содержательной корреляции, есть {n}. Это не ошибка. "
@@ -225,8 +234,21 @@ class RealWorldEvaluationLayer:
             ),
         }
 
+        if n_unique_genomes is None:
+            independence_note = (
+                " Число уникальных геномов неизвестно (genome_hash не передан): "
+                "независимость наблюдений не оценена."
+            )
+        else:
+            independence_note = (
+                f" Уникальных геномов среди {n} наблюдений: {n_unique_genomes}. "
+                f"Повторные прогоны одного генома не являются независимыми "
+                f"наблюдениями, evidence_strength это не учитывает."
+            )
+
         return TrustRealityReport(
             agent_id=agent_id, status="computed", n_observations=n,
+            n_unique_genomes=n_unique_genomes,
             correlation=round(correlation, 4),
             declared_score_trend=drift_report.severity,
             incident_rate=round(incident_rate, 3),
@@ -236,5 +258,6 @@ class RealWorldEvaluationLayer:
                 f"на {n} наблюдениях: {correlation:.4f}. Ожидается отрицательная "
                 f"корреляция, если методология действительно предсказательна "
                 f"(выше score, меньше инцидентов). {_STRENGTH_CAVEAT[strength]}"
+                f"{independence_note}"
             ),
         )

@@ -3,7 +3,7 @@ extractor.py. Prompt-to-Genome Extractor методологии Agenomics.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.7.5
+Версия: 0.8.0
 
 Автоматизирует получение AgentGenome из сырого системного промпта агента.
 
@@ -63,7 +63,118 @@ EXTRACTION_PROMPT_TEMPLATE = """\
 
 
 class ExtractionError(Exception):
-    """Ошибка парсинга ответа LLM, например модель вернула не-JSON."""
+    """Ошибка парсинга или валидации ответа LLM: модель вернула не-JSON
+    или JSON, не соответствующий EXTRACTION_JSON_SCHEMA. violations
+    перечисляет ВСЕ найденные нарушения, а не только первое, чтобы по
+    одной ошибке было видно, что именно не так с ответом модели."""
+
+    def __init__(self, message: str, violations: Optional[List[str]] = None):
+        super().__init__(message)
+        self.violations = violations or []
+
+
+_AXIS_SCHEMA = {
+    "oneOf": [
+        {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+        {
+            "type": "object",
+            "properties": {
+                "value": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+                "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                "evidence": {"type": "string", "minLength": 1},
+            },
+            "required": ["value", "confidence", "evidence"],
+            "additionalProperties": False,
+        },
+    ]
+}
+
+# [v0.8.0] Формальная схема ответа LLM (JSON Schema draft 2020-12). Для
+# внешних инструментов и документации; сама библиотека проверяет ответ
+# validate_extraction_payload() на stdlib, без jsonschema/pydantic, чтобы
+# ядро оставалось без runtime-зависимостей. Обе проверки описывают одни и
+# те же правила; semantic-правила, которые JSON Schema выразить не может,
+# перечислены в docstring validate_extraction_payload().
+EXTRACTION_JSON_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "AgenomicsPromptExtraction",
+    "type": "object",
+    "properties": {
+        "transparency": _AXIS_SCHEMA,
+        "bias_control": _AXIS_SCHEMA,
+        "data_safety": _AXIS_SCHEMA,
+        "domain": {"type": ["string", "null"]},
+        "autonomy": {"enum": ["advisory", "autonomous"]},
+    },
+    "required": ["transparency", "bias_control", "data_safety"],
+    "additionalProperties": False,
+}
+
+_ALLOWED_KEYS = set(EXTRACTION_JSON_SCHEMA["properties"])
+_ALLOWED_AUTONOMY = ("advisory", "autonomous")
+
+
+def _is_number(value) -> bool:
+    # bool это подкласс int в Python, но true/false на месте оценки
+    # оси это ошибка модели, а не число. NaN/inf не проходят диапазон.
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == value
+
+
+def _check_range(path: str, value, lo: float, hi: float, violations: List[str]) -> None:
+    if not _is_number(value):
+        violations.append(f"{path}: ожидалось число, получено {value!r}")
+    elif not (lo <= value <= hi):
+        violations.append(f"{path}: {value} вне диапазона [{lo}, {hi}]")
+
+
+def validate_extraction_payload(data) -> List[str]:
+    """Проверяет распарсенный ответ LLM на соответствие
+    EXTRACTION_JSON_SCHEMA плюс семантические правила. Возвращает список
+    нарушений, пустой список значит ответ валиден.
+
+    Семантика сверх JSON Schema:
+    - value=null (оценить невозможно) с confidence > 0 противоречиво:
+      уверенность в отсутствующей оценке ничего не значит;
+    - evidence обязателен в структурированном формате: оценка без
+      указания, на чём она основана, это то, от чего extract_with_evidence()
+      и должен защищать (честное "общее впечатление" допустимо)."""
+    violations: List[str] = []
+    if not isinstance(data, dict):
+        return [f"ответ должен быть JSON-объектом, получено {type(data).__name__}"]
+
+    for key in sorted(set(data) - _ALLOWED_KEYS):
+        violations.append(f"{key}: неизвестное поле")
+
+    for axis in _AXIS_FIELDS:
+        if axis not in data:
+            violations.append(f"{axis}: обязательное поле отсутствует")
+            continue
+        raw = data[axis]
+        if raw is None:
+            continue
+        if isinstance(raw, dict):
+            for key in sorted(set(raw) - {"value", "confidence", "evidence"}):
+                violations.append(f"{axis}.{key}: неизвестное поле")
+            for key in ("value", "confidence", "evidence"):
+                if key not in raw:
+                    violations.append(f"{axis}.{key}: обязательное поле отсутствует")
+            if raw.get("value") is not None:
+                _check_range(f"{axis}.value", raw["value"], 0, 100, violations)
+            if "confidence" in raw:
+                _check_range(f"{axis}.confidence", raw["confidence"], 0, 1, violations)
+            if "evidence" in raw and (not isinstance(raw["evidence"], str) or not raw["evidence"].strip()):
+                violations.append(f"{axis}.evidence: ожидалась непустая строка, получено {raw['evidence']!r}")
+            confidence = raw.get("confidence")
+            if "value" in raw and raw["value"] is None and _is_number(confidence) and confidence > 0:
+                violations.append(f"{axis}: value=null при confidence={confidence}, уверенность в отсутствующей оценке")
+        else:
+            _check_range(axis, raw, 0, 100, violations)
+
+    if "domain" in data and data["domain"] is not None and not isinstance(data["domain"], str):
+        violations.append(f"domain: ожидалась строка или null, получено {data['domain']!r}")
+    if "autonomy" in data and data["autonomy"] not in _ALLOWED_AUTONOMY:
+        violations.append(f"autonomy: ожидалось одно из {_ALLOWED_AUTONOMY}, получено {data['autonomy']!r}")
+    return violations
 
 
 @dataclass
@@ -91,8 +202,15 @@ class ExtractionResult:
 class PromptToGenomeExtractor:
     """Извлекает AgentGenome из системного промпта агента через внешний LLM."""
 
-    def __init__(self, llm_call: Callable[[str], str]):
+    def __init__(self, llm_call: Callable[[str], str], strict: bool = True):
+        """strict=True (по умолчанию с v0.8.0): ответ LLM проверяется
+        validate_extraction_payload() до построения генома, любое
+        нарушение даёт ExtractionError со списком всех нарушений.
+        strict=False воспроизводит поведение до v0.8.0: неизвестные поля
+        игнорируются, ошибка возникает только если AgentGenome сам
+        отвергнет значение."""
         self._llm_call = llm_call
+        self._strict = strict
 
     def extract(self, agent_id: str, system_prompt: str, **genome_overrides) -> AgentGenome:
         """Возвращает только геном, для обратной совместимости с версиями
@@ -107,6 +225,13 @@ class PromptToGenomeExtractor:
         prompt = EXTRACTION_PROMPT_TEMPLATE.format(system_prompt=system_prompt)
         raw_response = self._llm_call(prompt)
         data = self._parse_response(raw_response)
+        if self._strict:
+            violations = validate_extraction_payload(data)
+            if violations:
+                raise ExtractionError(
+                    "Ответ LLM не прошёл валидацию EXTRACTION_JSON_SCHEMA: " + "; ".join(violations),
+                    violations=violations,
+                )
 
         axis_values: Dict[str, Optional[float]] = {}
         axis_confidence: Dict[str, float] = {}
