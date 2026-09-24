@@ -12,6 +12,10 @@ pip install agenomics
 
 1. Скопируйте `frameworks/_example_template.py` в `frameworks/ваш_агент.py`
    (без ведущего подчёркивания), замените `run()` на реальный вызов
+   и укажите `MODEL_VERSION` (провайдер/модель, которую реально вызывает
+   `run()`, например `"groq/openai/gpt-oss-20b"`). Пишется в
+   `EvidenceStore.model_version`; `test_pipeline.py` проверяет, что
+   значение совпадает с моделью в коде шаблона
 2. Запустите: `python run_all_frameworks.py`
 3. Повторяйте, история накапливается в `frameworks_evidence.db`
 

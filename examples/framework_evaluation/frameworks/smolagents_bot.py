@@ -10,13 +10,20 @@ an api_key to work with auto API or log in with hf auth login").
 
 DOMAIN = "content"
 AUTONOMY = "advisory"
+MODEL_VERSION = "huggingface/Qwen/Qwen3-Next-80B-A3B-Thinking"  # провайдер/модель, записывается в EvidenceStore.model_version
 
 
 def run():
     import os
     from smolagents import CodeAgent, InferenceClientModel
 
-    model = InferenceClientModel(token=os.environ.get("HF_TOKEN"))
+    # model_id зафиксирован явно: без него smolagents берёт свой дефолт,
+    # который менялся между версиями библиотеки, и MODEL_VERSION
+    # перестал бы соответствовать реально вызванной модели. Значение
+    # совпадает с дефолтом smolagents 1.26.0, поведение не меняется.
+    model = InferenceClientModel(
+        model_id="Qwen/Qwen3-Next-80B-A3B-Thinking", token=os.environ.get("HF_TOKEN"),
+    )
     agent = CodeAgent(tools=[], model=model)
 
     result = agent.run("Посчитай сумму чисел от 1 до 10")

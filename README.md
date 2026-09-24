@@ -8,10 +8,10 @@ Genetics for AI Agents. Predictability and compatibility scoring for autonomous 
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Status](https://img.shields.io/badge/status-v0.7.10-orange.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-v0.7.11-orange.svg)](CHANGELOG.md)
 [![PyPI](https://img.shields.io/badge/PyPI-agenomics-blue.svg)](https://pypi.org/project/agenomics/)
 
-> **Автор**: Dm.Andreyanov **Версия**: 0.7.10 **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
+> **Автор**: Dm.Andreyanov **Версия**: 0.7.11 **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
 >
 > 📐 Формальная спецификация конвейера (Genome → Genome Schema → Phenotype
 > → Trust Model → Compatibility Model → Drift Model → Observed Behaviour
@@ -20,12 +20,12 @@ Genetics for AI Agents. Predictability and compatibility scoring for autonomous 
 > с валидацией против реальных инцидентов: [`benchmark/README.md`](benchmark/README.md).
 > 🚀 Хотите подключить реального агента и начать собирать данные для
 > Incident Correlation? Гайд на 15 минут: [`docs/CONNECT_YOUR_AGENTS.md`](docs/CONNECT_YOUR_AGENTS.md).
-> 🔌 Шаблоны-адаптеры для 15 популярных agent-фреймворков на бесплатном
+> 🔌 Шаблоны-адаптеры для 19 популярных agent-фреймворков на бесплатном
 > провайдере (LangChain, CrewAI, AG2, LlamaIndex, Griptape и других)
 > с авто-обнаружением и запуском по расписанию:
 > [`examples/framework_evaluation/`](examples/framework_evaluation/README.md).
 > Наличие адаптера не означает гарантированную production-совместимость
-> со всеми 15. Это отправная точка для сбора реальных наблюдений, не готовая интеграция.
+> со всеми 19. Это отправная точка для сбора реальных наблюдений, не готовая интеграция.
 >
 > ⚠️ Методология следует **semver 0.x**. До релиза `1.0.0` обратная
 > совместимость API не гарантируется между minor-версиями. Между 0.2 и 0.3
@@ -219,7 +219,8 @@ from agenomics import EvidenceStore, replay_into_evaluation_layer, RealWorldEval
 
 # Записываем наблюдения, они переживают перезапуск процесса (SQLite, stdlib)
 store = EvidenceStore("agenomics_evidence.db")
-store.record_observation("support-bot", declared_score=85, declared_label="Trusted", genome_hash="abc123")
+store.record_observation("support-bot", declared_score=85, declared_label="Trusted", genome_hash="abc123",
+                         model_version="groq/openai/gpt-oss-20b", prompt_version="v1")
 store.export_json("export.json")  # или export_csv(...)
 
 # После перезапуска процесса, свежий, пустой RealWorldEvaluationLayer:
@@ -452,7 +453,7 @@ agenomics/
 │   ├── reports.py                      # Markdown/DOCX-отчёты
 │   └── api.py                           # веб-API (FastAPI)
 ├── examples/
-│   └── framework_evaluation/  # Автоматический сбор реальных данных с 15 agent-фреймворков
+│   └── framework_evaluation/  # Автоматический сбор реальных данных с 19 agent-фреймворков
 ├── benchmark/                # Synthetic Benchmark Suite и Evidence Quality (sensitivity.py),
 │                              # репо-инструмент, не входит в pip-пакет, см. benchmark/README.md
 ├── prompts/                 # системные промпты (Trust Auditor и др.)
@@ -547,14 +548,62 @@ Python. `requirements.txt` нужен для запуска этого репо�
 - [x] v0.7.9: `RealWorldEvaluationLayer.trust_reality_report()`, многоуровневая `evidence_strength` вместо бинарного `insufficient_data`/`computed`
 - [x] v0.7.10: `agenomics/cli.py`, минимальный CLI (`score`/`report`/`compatibility`/`evidence list`/`genome validate`), `pip install agenomics[api]`/`[dev]`/`[all]` extras
 - [x] v0.7.10: тире, пропущенные в предыдущих раундах чистки (`AGENOMICS_ATTRIBUTION`, весь `agenomics/trust_score.py`), найдены при живом тестировании CLI
-- [ ] v0.8: Evolution/Mutation как предложение, требующее подтверждения человеком, не реализовано даже как прототип
-- [ ] v0.8: реальная Incident Correlation на настоящих production-данных, накопленных через EvidenceStore
-- [ ] v0.8: формальный Evaluation Protocol (EP-001..EP-00N с input, ground truth, metric, threshold, CI на каждый)
-- [ ] v0.8: Adversarial Evaluation Suite, активное зондирование агента (токсичные промпты, пустые файлы, симулированные атаки) до продакшена, чтобы `data_safety`/`bias_control` выводились из результата стресс-теста, а не только из пассивного наблюдения за логом обычной работы, как сейчас делает `genome_from_capture.py`. Отличается от Perturbation Tests (следующий пункт) тем, что происходит один раз до деплоя, а не постоянно на продакшен-трафике
-- [ ] v0.8: предиктивная валидность (Trust Score(t) → вероятность инцидента в будущем, ROC-AUC, Brier Score)
-- [ ] v0.8: веб-калькулятор на prizolov.ru
-- [ ] v0.8: Genome Ledger как публичный сервис, сейчас только локальный in-memory прототип
-- [ ] v0.8: мультиязычность за пределами ru/en
+- [x] v0.7.11: `EvidenceStore` получил `model_version`/`prompt_version` (какая LLM и какой промпт работали в момент наблюдения, отдельно от `trust_model_version`)
+- [x] v0.7.11: все 19 шаблонов `framework_evaluation` объявляют `MODEL_VERSION`, тест сверяет его с моделью, реально вызываемой в `run()`
+- [x] v0.7.11: `docs/AEP-001.md` документирует `execution_status`/`duration_seconds` (писались с v0.7.2, но не были описаны в протоколе)
+
+### Открытые операционные вопросы (действие, не версия)
+
+- [ ] `prizolov-sports-ai`: SQLite или PostgreSQL. Если PostgreSQL, бэкенд `EvidenceStore` сдвигается из v0.9.5 раньше, поэтому ответ нужен до начала v0.8
+- [ ] `atomic_agents_bot`: необъяснённый `ImportError`
+- [ ] `crewai_bot`: ждём исправления внешнего бага CrewAI
+- [ ] Секреты `HF_TOKEN`/`GOOGLE_API_KEY` в репозитории (без них smolagents и Google ADK падают на каждом прогоне)
+- [ ] Копить данные до уровня `preliminary` (n≥50 наблюдений на агента, `agenomics/evaluation.py`)
+
+### v0.8: Evidence Foundation
+
+- [ ] Adversarial Evaluation Suite: активное зондирование агента до продакшена (токсичные промпты, пустые файлы, симулированные атаки), чтобы `data_safety`/`bias_control` выводились из стресс-теста, а не только из пассивного наблюдения за логом, как сейчас делает `genome_from_capture.py`
+- [ ] Genome Versioning в `GenomeLedger`: `parent_genome_hash`, `created_by`, `change_reason`
+- [ ] Расширение маркеров (`instrumentation_block.md`) для реальных production-интеграций: маркеры про исход задачи, не только про факты действий
+- [ ] Строгая JSON Schema/Pydantic-валидация вывода `PromptToGenomeExtractor`
+- [ ] Формальное разделение Framework Evaluation CI на required/experimental (сейчас только текстовая сводка PASS/FAIL)
+
+### v0.9: Real Validation
+
+- [ ] Outcome Model (`Observation → Prediction → Outcome` с явным `prediction_target`) для реальных production-агентов, не для тестовых задач `framework_evaluation`. Поглощает прежний пункт «реальная Incident Correlation на production-данных»
+- [ ] `PredictionSnapshot` как отдельный объект, явно отделённый от `Observation`
+- [ ] Поведенческая классификация ошибок (hallucination/wrong_decision/reasoning_error), требует LLM-судьи или разметки человеком
+- [ ] Temporal Holdout: прошлое для калибровки, будущее для слепой проверки
+- [ ] Baseline-сравнение: historical incident rate, majority class, constant baseline
+- [ ] ROC-AUC, PR-AUC, Brier Score, calibration (прежний пункт «предиктивная валидность» из v0.8). Вычислимы только при достаточном объёме реальных данных, поэтому публикуются с меткой `evidence_strength`, а не ждут уровня `strong`
+
+### v0.9.5: Release Candidate
+
+- [ ] `/api/v1` с аутентификацией, rate limiting, structured errors
+- [ ] Расширение CLI: `audit`, `drift`, `evidence export` сверх 5 команд из v0.7.10
+- [ ] PostgreSQL как опциональный бэкенд `EvidenceStore`
+- [ ] `pip-audit`/`bandit`/security scanning в CI
+- [ ] Unified `AgentEvaluation`: genome/phenotype/trust/compatibility/drift/evidence в одной модели
+
+### v1.0: Stable
+
+- [ ] `Development Status` classifier → Production/Stable
+- [ ] Release pipeline: TestPyPI → smoke test → PyPI → GitHub Release → тег
+- [ ] Веб-калькулятор на prizolov.ru (перенесён из v0.8)
+- [ ] Реструктуризация `docs/` на поддиректории, если объём документации разрастётся
+
+### Снято с прежнего плана v0.8 (перенесено за v1.0, не забыто)
+
+Эти пункты стояли в roadmap v0.8 до v0.7.11 и сознательно выведены из него:
+
+- Evolution/Mutation как предложение, требующее подтверждения человеком: не имеет смысла до Genome Versioning (v0.8) и Outcome Model (v0.9), на которые опирается
+- Формальный Evaluation Protocol (EP-001..EP-00N с input, ground truth, metric, threshold, CI): частично покрывается Adversarial Evaluation Suite (v0.8) и Temporal Holdout/baseline (v0.9). Как отдельный реестр протоколов не запланирован
+- Genome Ledger как публичный сервис: инфраструктура с публичным доступом, та же категория, что и распределённый evidence-кластер ниже
+- Мультиязычность за пределами ru/en: не блокирует ни один шаг к v1.0
+
+### Осознанно не в roadmap (v1.1+ как минимум)
+
+Marketplace/плагины, автоматическое «размножение» агентов, распределённый evidence-кластер, SaaS-биллинг, enterprise SSO. Это расползание scope: не трогаем, пока не закрыт барьер с реальными данными.
 
 Полная история изменений: [`CHANGELOG.md`](CHANGELOG.md).
 
