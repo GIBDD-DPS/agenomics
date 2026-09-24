@@ -142,6 +142,70 @@ def test_history_persists_across_separate_evidence_store_objects():
         final_store.close()
 
 
+
+def test_full_pipeline_records_model_and_prompt_version():
+    store = EvidenceStore(":memory:")
+    run_framework_and_record(
+        "versioned-fw", lambda: None, store, print_report=False,
+        model_version="groq/openai/gpt-oss-20b", prompt_version="p1",
+    )
+    obs = store.get_observations("versioned-fw")[0]
+    assert obs.model_version == "groq/openai/gpt-oss-20b"
+    assert obs.prompt_version == "p1"
+    store.close()
+
+
+def _framework_templates():
+    from pathlib import Path
+    frameworks_dir = Path(__file__).resolve().parent / "frameworks"
+    return [p for p in sorted(frameworks_dir.glob("*.py")) if not p.name.startswith("_")]
+
+
+def _module_constant(source: str, name: str):
+    """Читает строковую константу модуля через ast, без импорта:
+    импорт шаблона не нужен и не должен зависеть от установленных
+    фреймворков."""
+    import ast
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == name for t in node.targets
+        ) and isinstance(node.value, ast.Constant):
+            return node.value.value
+    return None
+
+
+def test_every_framework_template_declares_model_version():
+    templates = _framework_templates()
+    assert len(templates) >= 19
+    missing = [p.name for p in templates if not _module_constant(p.read_text(encoding="utf-8"), "MODEL_VERSION")]
+    assert not missing, f"MODEL_VERSION не объявлен в: {missing}"
+
+
+def test_model_version_matches_model_actually_called():
+    """MODEL_VERSION = "<провайдер>/<модель>". Идентификатор модели
+    (всё после провайдера) обязан встречаться в коде шаблона ещё раз,
+    помимо самой константы. Ловит ситуацию, когда модель в run()
+    поменяли, а MODEL_VERSION забыли, и в EvidenceStore пишется
+    неправда."""
+    mismatched = []
+    for p in _framework_templates():
+        source = p.read_text(encoding="utf-8")
+        model_version = _module_constant(source, "MODEL_VERSION")
+        _, _, model_id = model_version.partition("/")
+        declaration = next(line for line in source.splitlines() if line.startswith("MODEL_VERSION"))
+        if not model_id or model_id not in source.replace(declaration, ""):
+            mismatched.append(f"{p.name}: {model_version}")
+    assert not mismatched, f"MODEL_VERSION не совпадает с моделью в run(): {mismatched}"
+
+
+def test_runner_passes_model_version_from_template():
+    from run_all_frameworks import discover_frameworks
+    discovered = discover_frameworks()
+    assert discovered["langchain_bot"]["model_version"] == "groq/openai/gpt-oss-20b"
+    assert discovered["google_adk_bot"]["model_version"] == "google/gemini-2.5-flash"
+    assert discovered["langchain_bot"]["prompt_version"] is None
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     passed = 0

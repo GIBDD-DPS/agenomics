@@ -6,6 +6,7 @@ litellm-стиль строки модели, унаследованный от 
 
 DOMAIN = "content"
 AUTONOMY = "advisory"
+MODEL_VERSION = "groq/openai/gpt-oss-20b"  # провайдер/модель, записывается в EvidenceStore.model_version
 
 
 def run():

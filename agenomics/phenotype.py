@@ -54,6 +54,7 @@ GENOME_SCHEMA: List[FieldSpec] = [
     FieldSpec("risk_tolerance", "float | null", False, (0, 100), "Ось Compatibility Model"),
     FieldSpec("social_style", "float | null", False, (0, 100), "Ось Compatibility Model"),
     FieldSpec("tier_override", "enum[1,2,3] | null", False, description="Принудительный Impact Tier в обход авто-классификации по domain/domains"),
+    FieldSpec("axis_confidence", "dict[str, float] | null", False, (0, 1), "Уверенность в значении каждой оси (0.0-1.0); не указанная ось с заданным значением считается 1.0"),
 ]
 
 

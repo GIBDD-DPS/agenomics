@@ -4,6 +4,23 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/),
 версионирование: [Semantic Versioning](https://semver.org/) (0.x: API нестабилен).
 
+## [0.7.11] - 2026-09-24
+
+### Добавлено
+- **`EvidenceStore`: поля `model_version` и `prompt_version`** (колонки, параметры `record_observation()`, `StoredObservation`, `export_json()`/`export_csv()`). Описывают агента: какая LLM и какая версия системного промпта работали в момент наблюдения. `trust_model_version` отвечает на другой вопрос, какой версией agenomics считался score. Без этих полей смена модели или промпта выглядела в истории как дрейф самого агента. Автоматически не проставляются, `None` честнее угаданного значения. Файлы базы 0.7.10 и старше получают колонки автоматически при открытии (тот же механизм `_migrate_schema()`, что и в 0.7.3), старые записи остаются с `None`
+- **Все 19 шаблонов `examples/framework_evaluation/frameworks/` объявляют `MODEL_VERSION`**. `run_all_frameworks.py` передаёт его (и необязательный `PROMPT_VERSION`) через `run_framework_and_record()` в `EvidenceStore`. `_example_template.py` и README примеров описывают `MODEL_VERSION` как обязательный для новых шаблонов
+- `smolagents_bot.py`: `model_id` зафиксирован явно (`Qwen/Qwen3-Next-80B-A3B-Thinking`, совпадает с дефолтом smolagents 1.26.0). Без этого `MODEL_VERSION` мог разойтись с реально вызванной моделью при обновлении библиотеки
+- Тесты: 4 в `tests/test_evidence.py` (сохранение, `None` по умолчанию, экспорт, миграция файла схемы 0.7.10), 4 в `examples/framework_evaluation/test_pipeline.py`, включая проверку, что идентификатор модели из `MODEL_VERSION` действительно встречается в коде шаблона, а не только в константе
+
+### Исправлено
+- **`docs/AEP-001.md`: `execution_status` и `duration_seconds` никогда не были задокументированы**, хотя пишутся с v0.7.2 и `predictability` строится по ним. Добавлены в таблицу Observation вместе с `model_version`/`prompt_version`. Изменилась документация, не схема: данные, собранные с v0.7.2, эти поля уже содержат. `AEP_SCHEMA_VERSION` остаётся `1.0`, все добавленные поля опциональны
+- **Framework Evaluation CI ставил `agenomics` с PyPI, а не из checkout.** Примеры из репозитория прогонялись против последней опубликованной версии: с 0.7.11 это роняло бы каждый фреймворк с `TypeError` на `model_version=` до публикации релиза. Теперь `pip install ../..` из того же коммита
+- **`GENOME_SCHEMA` не содержал `axis_confidence`**, поле `AgentGenome` с v0.7.1. `describe_genome_schema()` отдавал неполное описание, `tests/test_phenotype.py::test_genome_schema_covers_all_dataclass_fields` падал на `main`. Схема описательная, валидацию не затрагивает
+- README: число шаблонов-адаптеров 15 → 19 (фактическое, после добавления Swarms, Semantic Kernel, OpenAI Agents SDK, BeeAI)
+
+### Осознанно не реализовано в этом релизе
+- `EvidenceStoreHook` не принимает `model_version`/`prompt_version`: хук получает `TrustResult`, в котором этой информации нет, и расширение его интерфейса относится к production-интеграциям (roadmap v0.8, расширение маркеров), а не к схеме
+
 ## [0.7.10] - 2026-09-09
 
 ### Добавлено

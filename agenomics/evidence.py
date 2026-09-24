@@ -44,7 +44,9 @@ CREATE TABLE IF NOT EXISTS observations (
     collector TEXT,
     source TEXT,
     execution_status TEXT,
-    duration_seconds REAL
+    duration_seconds REAL,
+    model_version TEXT,
+    prompt_version TEXT
 );
 
 CREATE TABLE IF NOT EXISTS incidents (
@@ -66,7 +68,8 @@ CREATE INDEX IF NOT EXISTS idx_incidents_observation_id ON incidents(observation
 _OBSERVATION_COLS = (
     "id, agent_id, timestamp, declared_score, declared_label, declared_confidence, "
     "genome_hash, genome_version, trust_model_version, evaluation_period, "
-    "request_count, schema_version, collector, source, execution_status, duration_seconds"
+    "request_count, schema_version, collector, source, execution_status, duration_seconds, "
+    "model_version, prompt_version"
 )
 
 
@@ -88,6 +91,8 @@ class StoredObservation:
     source: Optional[str] = None
     execution_status: Optional[str] = None
     duration_seconds: Optional[float] = None
+    model_version: Optional[str] = None
+    prompt_version: Optional[str] = None
     incidents: List[Dict] = field(default_factory=list)
 
 
@@ -102,6 +107,8 @@ _EXPECTED_OBSERVATION_COLUMNS = {
     "source": "TEXT",
     "execution_status": "TEXT",
     "duration_seconds": "REAL",
+    "model_version": "TEXT",
+    "prompt_version": "TEXT",
 }
 
 
@@ -159,6 +166,8 @@ class EvidenceStore:
         source: Optional[str] = None,
         execution_status: Optional[str] = None,
         duration_seconds: Optional[float] = None,
+        model_version: Optional[str] = None,
+        prompt_version: Optional[str] = None,
         timestamp: Optional[datetime] = None,
     ) -> int:
         """Сохраняет одно наблюдение и связанные инциденты по схеме AEP-001.
@@ -171,7 +180,16 @@ class EvidenceStore:
         execution_status ("success" или "error") и duration_seconds
         нужны, чтобы честно восстанавливать историю запусков после
         перезапуска процесса, например между запусками GitHub Actions.
-        Раньше статус приходилось угадывать по тексту описания инцидента."""
+        Раньше статус приходилось угадывать по тексту описания инцидента.
+
+        model_version и prompt_version описывают самого агента, а не
+        agenomics: какая LLM (например, "groq/openai/gpt-oss-20b") и
+        какая версия системного промпта работали в момент наблюдения.
+        trust_model_version отвечает на другой вопрос, какой версией
+        agenomics считался score. Без этих полей смена модели или промпта
+        выглядит в истории как дрейф самого агента. Автоматически не
+        проставляются: agenomics не может знать, какую модель вызывал
+        агент, None честнее угаданного значения."""
         ts = (timestamp or datetime.now(timezone.utc)).isoformat()
 
         resolved_trust_model_version = trust_model_version or agenomics_version
@@ -183,12 +201,14 @@ class EvidenceStore:
             "INSERT INTO observations "
             "(agent_id, timestamp, declared_score, declared_label, declared_confidence, "
             "genome_hash, genome_version, trust_model_version, evaluation_period, "
-            "request_count, schema_version, collector, source, execution_status, duration_seconds) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "request_count, schema_version, collector, source, execution_status, duration_seconds, "
+            "model_version, prompt_version) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 agent_id, ts, declared_score, declared_label, declared_confidence,
                 genome_hash, genome_version, resolved_trust_model_version, evaluation_period,
                 request_count, AEP_SCHEMA_VERSION, collector, source, execution_status, duration_seconds,
+                model_version, prompt_version,
             ),
         )
         obs_id = cur.lastrowid
@@ -252,6 +272,7 @@ class EvidenceStore:
                     genome_version=obs_row[7], trust_model_version=obs_row[8], evaluation_period=obs_row[9],
                     request_count=obs_row[10], schema_version=obs_row[11], collector=obs_row[12], source=obs_row[13],
                     execution_status=obs_row[14], duration_seconds=obs_row[15],
+                    model_version=obs_row[16], prompt_version=obs_row[17],
                     incidents=[],
                 ))
             # LEFT JOIN даёт одну строку с NULL-инцидентом для наблюдений
@@ -287,6 +308,7 @@ class EvidenceStore:
                 "evaluation_period": o.evaluation_period, "request_count": o.request_count,
                 "schema_version": o.schema_version, "collector": o.collector, "source": o.source,
                 "execution_status": o.execution_status, "duration_seconds": o.duration_seconds,
+                "model_version": o.model_version, "prompt_version": o.prompt_version,
                 "incidents": o.incidents,
             }
             for o in observations
@@ -305,7 +327,7 @@ class EvidenceStore:
                 "id", "agent_id", "timestamp", "declared_score", "declared_label",
                 "declared_confidence", "genome_hash", "genome_version", "trust_model_version",
                 "evaluation_period", "request_count", "schema_version", "collector", "source",
-                "execution_status", "duration_seconds",
+                "execution_status", "duration_seconds", "model_version", "prompt_version",
                 "n_incidents", "n_minor", "n_moderate", "n_severe",
             ])
             for o in observations:
@@ -317,7 +339,7 @@ class EvidenceStore:
                     o.id, o.agent_id, o.timestamp, o.declared_score, o.declared_label,
                     o.declared_confidence, o.genome_hash, o.genome_version, o.trust_model_version,
                     o.evaluation_period, o.request_count, o.schema_version, o.collector, o.source,
-                    o.execution_status, o.duration_seconds,
+                    o.execution_status, o.duration_seconds, o.model_version, o.prompt_version,
                     len(o.incidents), counts["minor"], counts["moderate"], counts["severe"],
                 ])
         return path

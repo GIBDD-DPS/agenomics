@@ -7,6 +7,7 @@
 
 DOMAIN = "content"
 AUTONOMY = "advisory"
+MODEL_VERSION = "google/gemini-2.5-flash"  # провайдер/модель, записывается в EvidenceStore.model_version
 
 
 def run():

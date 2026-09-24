@@ -42,8 +42,9 @@ DB_PATH = Path(__file__).parent / "frameworks_evidence.db"
 def discover_frameworks() -> dict:
     """
     Сканирует frameworks/*.py, импортирует каждый файл как модуль и
-    берёт из него функцию run() (обязательна) + DOMAIN/AUTONOMY
-    (опциональны). Файлы без run() пропускаются с предупреждением,
+    берёт из него функцию run() (обязательна) + DOMAIN/AUTONOMY/
+    MODEL_VERSION/PROMPT_VERSION (опциональны для раннера; MODEL_VERSION
+    обязателен для шаблонов в этой папке, это проверяет test_pipeline.py). Файлы без run() пропускаются с предупреждением,
     а не роняют весь скрипт — тот же принцип отказоустойчивости,
     что и в capture_log_v2.py.
     """
@@ -72,6 +73,8 @@ def discover_frameworks() -> dict:
             "run": module.run,
             "domain": getattr(module, "DOMAIN", "content"),
             "autonomy": getattr(module, "AUTONOMY", "advisory"),
+            "model_version": getattr(module, "MODEL_VERSION", None),
+            "prompt_version": getattr(module, "PROMPT_VERSION", None),
         }
     return discovered
 
@@ -91,6 +94,7 @@ def main():
         summary = run_framework_and_record(
             name, config["run"], store,
             domain=config["domain"], autonomy=config["autonomy"],
+            model_version=config["model_version"], prompt_version=config["prompt_version"],
             print_report=False,
         )
         results.append(summary)

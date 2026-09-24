@@ -74,12 +74,15 @@ def run_framework_and_record(
     weight_profile: str = "default",
     loggers: Optional[List[str]] = None,
     print_report: bool = True,
+    model_version: Optional[str] = None,
+    prompt_version: Optional[str] = None,
 ) -> dict:
     """Один вызов делает всё: запускает агента, захватывает лог, строит
     честный геном, считает настоящий TrustScorer.score() и записывает
     результат в EvidenceStore со всеми полями AEP-001 (genome_hash,
     evaluation_period, collector, source, execution_status,
-    duration_seconds) и реальными инцидентами.
+    duration_seconds, model_version, prompt_version) и реальными
+    инцидентами.
 
     Возвращает словарь со сводкой: status, score, label, confidence,
     leaked_secrets."""
@@ -164,6 +167,8 @@ def run_framework_and_record(
         source="full_pipeline.py",
         execution_status=status,
         duration_seconds=duration,
+        model_version=model_version,
+        prompt_version=prompt_version,
         incidents=incidents,
         timestamp=started_at,
     )

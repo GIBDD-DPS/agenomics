@@ -410,3 +410,104 @@ def test_memory_store_does_not_break_with_wal_guard():
     store.record_observation("agent-1", 80.0, "Trusted")
     assert store.count_observations("agent-1") == 1
     store.close()
+
+
+# --- model_version/prompt_version (v0.7.11) -----------------------------
+
+def test_model_and_prompt_version_persisted():
+    store = EvidenceStore(":memory:")
+    store.record_observation(
+        "agent-1", 70.0, "Conditional",
+        model_version="groq/openai/gpt-oss-20b", prompt_version="v3",
+    )
+    obs = store.get_observations("agent-1")[0]
+    assert obs.model_version == "groq/openai/gpt-oss-20b"
+    assert obs.prompt_version == "v3"
+    store.close()
+
+
+def test_model_and_prompt_version_default_to_none():
+    """agenomics не знает, какую модель вызывал агент, поэтому ничего
+    не подставляет, в отличие от trust_model_version."""
+    store = EvidenceStore(":memory:")
+    store.record_observation("agent-1", 70.0, "Conditional")
+    obs = store.get_observations("agent-1")[0]
+    assert obs.model_version is None
+    assert obs.prompt_version is None
+    store.close()
+
+
+def test_model_and_prompt_version_in_exports():
+    store = EvidenceStore(":memory:")
+    store.record_observation("agent-1", 70.0, "Conditional", model_version="m1", prompt_version="p1")
+    with tempfile.TemporaryDirectory() as tmp:
+        json_path = store.export_json(os.path.join(tmp, "out.json"))
+        with open(json_path, encoding="utf-8") as f:
+            data = json.load(f)
+        assert data[0]["model_version"] == "m1"
+        assert data[0]["prompt_version"] == "p1"
+
+        csv_path = store.export_csv(os.path.join(tmp, "out.csv"))
+        with open(csv_path, encoding="utf-8") as f:
+            header, row = f.read().splitlines()[:2]
+        columns = header.split(",")
+        values = row.split(",")
+        assert values[columns.index("model_version")] == "m1"
+        assert values[columns.index("prompt_version")] == "p1"
+    store.close()
+
+
+def test_migrates_v0710_schema_file_missing_model_and_prompt_version():
+    """Файл базы, созданный на 0.7.10 (уже с execution_status, но без
+    model_version/prompt_version), например восстановленный из кэша
+    GitHub Actions, получает новые колонки при открытии. Старые записи
+    остаются, новые поля у них None."""
+    import sqlite3
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = os.path.join(tmp, "v0710.db")
+        conn = sqlite3.connect(db_path)
+        conn.executescript(
+            """
+            CREATE TABLE observations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                declared_score REAL NOT NULL,
+                declared_label TEXT NOT NULL,
+                declared_confidence TEXT,
+                genome_hash TEXT,
+                genome_version TEXT,
+                trust_model_version TEXT,
+                evaluation_period TEXT,
+                request_count INTEGER,
+                schema_version TEXT,
+                collector TEXT,
+                source TEXT,
+                execution_status TEXT,
+                duration_seconds REAL
+            );
+            CREATE TABLE incidents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                observation_id INTEGER NOT NULL,
+                severity TEXT NOT NULL,
+                description TEXT,
+                category TEXT,
+                source TEXT,
+                confirmed INTEGER,
+                resolution TEXT
+            );
+            INSERT INTO observations (agent_id, timestamp, declared_score, declared_label, execution_status)
+            VALUES ('agent-a', '2026-09-01T00:00:00+00:00', 55.0, 'Conditional', 'success');
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        store = EvidenceStore(db_path)
+        store.record_observation("agent-a", 60.0, "Conditional", model_version="m2", prompt_version="p2")
+        old, new = store.get_observations("agent-a")
+        assert old.execution_status == "success"
+        assert old.model_version is None and old.prompt_version is None
+        assert new.model_version == "m2" and new.prompt_version == "p2"
+        store.close()

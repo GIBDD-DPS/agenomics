@@ -8,6 +8,7 @@ base_url через параметр async_client. Требует GROQ_API_KEY.
 
 DOMAIN = "content"
 AUTONOMY = "advisory"
+MODEL_VERSION = "groq/openai/gpt-oss-20b"  # провайдер/модель, записывается в EvidenceStore.model_version
 
 
 def run():
