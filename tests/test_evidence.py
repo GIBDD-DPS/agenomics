@@ -511,3 +511,18 @@ def test_migrates_v0710_schema_file_missing_model_and_prompt_version():
         assert old.model_version is None and old.prompt_version is None
         assert new.model_version == "m2" and new.prompt_version == "p2"
         store.close()
+
+
+def test_infrastructure_category_roundtrips_through_replay():
+    """IncidentCategory.INFRASTRUCTURE (v0.7.12) сохраняется и
+    восстанавливается replay_into_evaluation_layer() без ошибки enum."""
+    from agenomics import IncidentCategory
+    store = EvidenceStore(":memory:")
+    store.record_observation(
+        "agent-1", 60.0, "Conditional",
+        incidents=[Incident("ImportError", IncidentSeverity.SEVERE, category=IncidentCategory.INFRASTRUCTURE)],
+    )
+    assert store.get_observations("agent-1")[0].incidents[0]["category"] == "infrastructure"
+    layer = RealWorldEvaluationLayer()
+    assert replay_into_evaluation_layer(store, layer, "agent-1") == 1
+    store.close()

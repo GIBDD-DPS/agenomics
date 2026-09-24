@@ -38,6 +38,12 @@ class IncidentCategory(str, Enum):
     BIAS = "bias"
     HALLUCINATION = "hallucination"
     COMPLIANCE = "compliance"
+    # [v0.7.12] Сбой окружения, а не поведения агента: ImportError,
+    # отсутствующий API-ключ, rate limit провайдера, недоступная модель,
+    # баг в самом фреймворке. Отдельная категория нужна, чтобы при
+    # сопоставлении Trust Score с инцидентами такие события можно было
+    # исключить: они говорят о CI и зависимостях, а не о доверии к агенту.
+    INFRASTRUCTURE = "infrastructure"
     OTHER = "other"
 
 

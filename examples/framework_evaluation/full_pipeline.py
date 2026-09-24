@@ -27,7 +27,24 @@ from typing import Callable, List, Optional
 
 from agenomics import EvidenceStore, TrustScorer, trust_report
 
-from genome_from_capture import derive_genome_from_capture
+from classify_failures import classify_error
+from genome_from_capture import _detect_leaked_secrets, derive_genome_pre_run
+
+# Помечает наблюдения, чей score посчитан ДО прогона (v0.7.12+). Записи
+# с source="full_pipeline.py" (без суффикса) сделаны старой версией,
+# где score считался по логу и статусу того же прогона, что и его
+# инциденты. Для проверки связи score с инцидентами их нужно исключать,
+# см. CHANGELOG 0.7.12.
+PRE_RUN_SOURCE = "full_pipeline.py/pre-run"
+
+# Классы из classify_failures.classify_error(), которые означают сбой
+# окружения, а не поведения агента. "timeout" сюда сознательно не
+# входит: таймаут бывает и у провайдера, и у агента, зациклившегося на
+# задаче, и по тексту исключения их не отличить.
+_INFRASTRUCTURE_ERROR_CLASSES = {
+    "rate_limit", "import_error", "model_unavailable", "auth_error",
+    "provider_routing_error", "known_upstream_bug",
+}
 
 
 def _genome_hash(genome) -> str:
@@ -54,14 +71,18 @@ def _load_history_from_store(store: EvidenceStore, agent_id: str):
 
     Наблюдения без execution_status (записанные до этой версии или из
     другого источника) просто пропускаются, а не подставляются фиктивным
-    значением. Лучше меньше истории, чем искажённая."""
-    statuses, durations = [], []
+    значением. Лучше меньше истории, чем искажённая.
+
+    Возвращает статусы, длительности и, по одному bool на прогон, была
+    ли в нём найдена утечка секрета (инцидент категории data_leak)."""
+    statuses, durations, leaks = [], [], []
     for obs in store.get_observations(agent_id):
         if obs.execution_status is not None:
             statuses.append(obs.execution_status)
             if obs.duration_seconds is not None:
                 durations.append(obs.duration_seconds)
-    return statuses, durations
+            leaks.append(any(inc.get("category") == "data_leak" for inc in obs.incidents))
+    return statuses, durations, leaks
 
 
 def run_framework_and_record(
@@ -77,8 +98,9 @@ def run_framework_and_record(
     model_version: Optional[str] = None,
     prompt_version: Optional[str] = None,
 ) -> dict:
-    """Один вызов делает всё: запускает агента, захватывает лог, строит
-    честный геном, считает настоящий TrustScorer.score() и записывает
+    """Один вызов делает всё: строит геном из истории прошлых прогонов и
+    считает по нему TrustScorer.score() ДО запуска, затем запускает
+    агента, захватывает лог и записывает
     результат в EvidenceStore со всеми полями AEP-001 (genome_hash,
     evaluation_period, collector, source, execution_status,
     duration_seconds, model_version, prompt_version) и реальными
@@ -89,6 +111,21 @@ def run_framework_and_record(
     import io, contextlib, logging, time
     from datetime import timezone
     from agenomics import Incident, IncidentCategory, IncidentSeverity, IncidentSource
+
+    # Score фиксируется до прогона, только из прошлых прогонов. Всё, что
+    # случится в текущем прогоне (статус, длительность, утечка в логе),
+    # попадает в наблюдение как исход, но не влияет на его score:
+    # иначе score и инциденты одного наблюдения зависят от одного и того
+    # же события, и их корреляция ничего не доказывает (target leakage).
+    past_statuses, past_durations, past_leaks = _load_history_from_store(store, framework)
+    derivation = derive_genome_pre_run(
+        framework, domain=domain, autonomy=autonomy, has_ledger=has_ledger,
+        framework_history_statuses=past_statuses,
+        framework_history_durations=past_durations,
+        framework_history_leaks=past_leaks,
+    )
+    genome = derivation.genome
+    result = TrustScorer(weight_profile=weight_profile).score(genome)
 
     loggers = loggers or [""]
     stream = io.StringIO()
@@ -123,31 +160,26 @@ def run_framework_and_record(
     duration = round(time.perf_counter() - start_perf, 3)
     raw_log = stream.getvalue()
 
-    # История грузится из store до текущего прогона, затем текущий
-    # прогон добавляется к ней локально для передачи в genome_from_capture.
-    # Запись в store ниже (не какой-либо словарь в памяти) и есть то,
-    # что переживает перезапуск процесса.
-    past_statuses, past_durations = _load_history_from_store(store, framework)
-    history_statuses = past_statuses + [status]
-    history_durations = past_durations + [duration]
-
-    derivation = derive_genome_from_capture(
-        framework, raw_log, domain=domain, autonomy=autonomy, has_ledger=has_ledger,
-        framework_history_statuses=history_statuses,
-        framework_history_durations=history_durations,
-    )
-    genome = derivation.genome
-
-    result = TrustScorer(weight_profile=weight_profile).score(genome)
+    # Исход текущего прогона. Попадает в store и станет историей для
+    # score следующего прогона, но не для score этого.
+    leaked_secret_types = _detect_leaked_secrets(raw_log)
 
     incidents = []
     if status == "error":
+        # Класс ошибки пишется при записи, а не только при чтении отчёта
+        # (classify_failures.py): ImportError и отсутствующий ключ не
+        # должны выглядеть в базе так же, как сбой поведения агента.
+        error_class = classify_error(error_summary)
+        category = (
+            IncidentCategory.INFRASTRUCTURE if error_class in _INFRASTRUCTURE_ERROR_CLASSES
+            else IncidentCategory.OTHER
+        )
         incidents.append(Incident(
-            description=f"Framework {framework}: {error_summary}",
-            severity=IncidentSeverity.SEVERE, category=IncidentCategory.OTHER,
+            description=f"[{error_class}] Framework {framework}: {error_summary}",
+            severity=IncidentSeverity.SEVERE, category=category,
             source=IncidentSource.AUTOMATED_MONITOR, confirmed=True,
         ))
-    for secret_type in derivation.leaked_secret_types:
+    for secret_type in leaked_secret_types:
         incidents.append(Incident(
             description=f"Обнаружена возможная утечка секрета: {secret_type}",
             severity=IncidentSeverity.SEVERE, category=IncidentCategory.DATA_LEAK,
@@ -164,7 +196,7 @@ def run_framework_and_record(
         evaluation_period=started_at.isoformat(),
         request_count=1,
         collector="sdk",
-        source="full_pipeline.py",
+        source=PRE_RUN_SOURCE,
         execution_status=status,
         duration_seconds=duration,
         model_version=model_version,
@@ -179,11 +211,10 @@ def run_framework_and_record(
             print("\nЗаметки о выводе генома:")
             for note in derivation.derivation_notes:
                 print(f"  - {note}")
-        print(f"\nИстория для predictability: {len(history_statuses)} прогонов "
-              f"(включая {len(past_statuses)} из предыдущих запусков процесса)")
+        print(f"\nScore посчитан до прогона по истории из {len(past_statuses)} прошлых прогонов")
 
     return {
         "framework": framework, "status": status, "score": result.score,
         "label": result.label, "confidence": result.confidence,
-        "leaked_secrets": derivation.leaked_secret_types,
+        "leaked_secrets": leaked_secret_types,
     }

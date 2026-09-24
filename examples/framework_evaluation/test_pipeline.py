@@ -206,6 +206,109 @@ def test_runner_passes_model_version_from_template():
     assert discovered["langchain_bot"]["prompt_version"] is None
 
 
+
+# --- Score до прогона, без target leakage (v0.7.12) ---------------------
+
+def _seed_history(store, framework, statuses):
+    for status in statuses:
+        store.record_observation(
+            framework, 50.0, "Conditional", execution_status=status, duration_seconds=1.0,
+        )
+
+
+def test_recorded_score_does_not_depend_on_current_run_outcome():
+    """Главный регрессионный тест 0.7.12. До исправления упавший прогон
+    снижал predictability своего же наблюдения, и score наблюдения
+    зависел от его собственного исхода. Теперь одинаковая история даёт
+    одинаковый score, чем бы ни закончился текущий прогон."""
+    history = ["success", "success", "error", "success"]
+    scores = {}
+    for label, run_fn in (("ok", lambda: print("fine")), ("crash", lambda: 1 / 0)):
+        store = EvidenceStore(":memory:")
+        _seed_history(store, "fw", history)
+        summary = run_framework_and_record("fw", run_fn, store, print_report=False)
+        scores[label] = (summary["score"], store.get_observations("fw")[-1].declared_score)
+        store.close()
+    assert scores["ok"] == scores["crash"]
+
+
+def test_leak_in_current_run_is_incident_but_not_in_its_own_score():
+    leak_line = "token: Bearer abcdefghijklmnopqrstuvwxyz1234567890"
+    runs = {}
+    for label, run_fn in (("clean", lambda: print("fine")), ("leak", lambda: print(leak_line))):
+        store = EvidenceStore(":memory:")
+        _seed_history(store, "fw", ["success", "success", "success"])
+        this_run = run_framework_and_record("fw", run_fn, store, print_report=False)
+        incidents = store.get_observations("fw")[-1].incidents
+        next_run = run_framework_and_record("fw", lambda: print("fine"), store, print_report=False)
+        runs[label] = (this_run["score"], incidents, next_run["score"])
+        store.close()
+
+    assert any(inc["category"] == "data_leak" for inc in runs["leak"][1])
+    assert not runs["clean"][1]
+    # score прогона с утечкой посчитан до того, как утечка случилась
+    assert runs["leak"][0] == runs["clean"][0]
+    # а следующий прогон видит её в истории
+    assert runs["leak"][2] < runs["clean"][2]
+
+
+def test_first_run_without_history_has_no_invented_data_safety():
+    from genome_from_capture import derive_genome_pre_run
+    genome = derive_genome_pre_run("fw").genome
+    assert genome.data_safety is None
+    assert genome.drift_rate is None
+
+
+def test_pre_run_leak_window_forgets_old_leaks():
+    from genome_from_capture import derive_genome_pre_run
+    old_leak = [True] + [False] * 10
+    assert derive_genome_pre_run("fw", framework_history_leaks=old_leak).genome.data_safety == 70.0
+    recent_leak = [False] * 10 + [True]
+    assert derive_genome_pre_run("fw", framework_history_leaks=recent_leak).genome.data_safety == 15.0
+
+
+def test_new_observations_marked_as_pre_run():
+    from full_pipeline import PRE_RUN_SOURCE
+    store = EvidenceStore(":memory:")
+    run_framework_and_record("fw", lambda: None, store, print_report=False)
+    assert store.get_observations("fw")[0].source == PRE_RUN_SOURCE
+    store.close()
+
+
+def test_infrastructure_errors_classified_at_write_time():
+    store = EvidenceStore(":memory:")
+
+    def missing_dependency():
+        raise ModuleNotFoundError("No module named 'crewai'")
+
+    def agent_bug():
+        raise ValueError("agent returned malformed plan")
+
+    run_framework_and_record("infra-fw", missing_dependency, store, print_report=False)
+    run_framework_and_record("bug-fw", agent_bug, store, print_report=False)
+    infra = store.get_observations("infra-fw")[0].incidents[0]
+    bug = store.get_observations("bug-fw")[0].incidents[0]
+    assert infra["category"] == "infrastructure"
+    assert infra["description"].startswith("[import_error]")
+    assert bug["category"] == "other"
+    assert bug["description"].startswith("[other]")
+    store.close()
+
+
+def test_timeout_is_not_assumed_infrastructure():
+    """Таймаут бывает и у провайдера, и у зациклившегося агента, по
+    тексту исключения их не различить, поэтому не относим к
+    infrastructure."""
+    store = EvidenceStore(":memory:")
+
+    def slow():
+        raise TimeoutError("request timed out")
+
+    run_framework_and_record("slow-fw", slow, store, print_report=False)
+    assert store.get_observations("slow-fw")[0].incidents[0]["category"] == "other"
+    store.close()
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     passed = 0
