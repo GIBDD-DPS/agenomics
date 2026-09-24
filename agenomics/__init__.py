@@ -6,7 +6,7 @@ Agenomics. Genetics for AI Agents.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.8.0
+Версия: 0.9.0
 
 Формальная спецификация уровней конвейера (Genome → Genome Schema →
 Phenotype → Trust Model → Compatibility Model → Drift Model →
@@ -40,6 +40,10 @@ from .extractor import (
 )
 from .evaluation import RealWorldEvaluationLayer, Observation, TrustRealityReport
 from .evidence import EvidenceStore, StoredObservation, replay_into_evaluation_layer, AEP_SCHEMA_VERSION
+from .evidence_graph import (
+    Donor, StoredEvidence, StoredPrediction, StoredOutcome, EvidenceProfile,
+    DONOR_TYPES, QUALITY_LEVELS, VERIFICATION_METHODS,
+)
 from .hooks import EvidenceStoreHook
 from .adversarial import (
     AdversarialSuite, AdversarialReport, AxisEstimate, ProbeResult, adversarial_report_text,
@@ -65,9 +69,11 @@ __all__ = [
     "EXTRACTION_JSON_SCHEMA", "validate_extraction_payload",
     "RealWorldEvaluationLayer", "Observation", "TrustRealityReport",
     "EvidenceStore", "StoredObservation", "replay_into_evaluation_layer", "AEP_SCHEMA_VERSION",
+    "Donor", "StoredEvidence", "StoredPrediction", "StoredOutcome", "EvidenceProfile",
+    "DONOR_TYPES", "QUALITY_LEVELS", "VERIFICATION_METHODS",
     "AdversarialSuite", "AdversarialReport", "AxisEstimate", "ProbeResult", "adversarial_report_text",
     "EvidenceStoreHook",
     "trust_report", "compatibility_report", "trust_report_docx",
 ]
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"

@@ -8,10 +8,10 @@ Genetics for AI Agents. Predictability and compatibility scoring for autonomous 
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Status](https://img.shields.io/badge/status-v0.8.0-orange.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-v0.9.0-orange.svg)](CHANGELOG.md)
 [![PyPI](https://img.shields.io/badge/PyPI-agenomics-blue.svg)](https://pypi.org/project/agenomics/)
 
-> **Автор**: Dm.Andreyanov **Версия**: 0.8.0 **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
+> **Автор**: Dm.Andreyanov **Версия**: 0.9.0 **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
 >
 > 📐 Формальная спецификация конвейера (Genome → Genome Schema → Phenotype
 > → Trust Model → Compatibility Model → Drift Model → Observed Behaviour
@@ -376,6 +376,43 @@ hook.on_task_outcome(obs_id, "failure", [Incident("прогноз не сбыл�
 
 Подробнее: [`docs/PRIZOLOV_BRIDGE_INTERFACE.md`](docs/PRIZOLOV_BRIDGE_INTERFACE.md).
 
+### Evidence Graph (v0.9.0). Кто сообщил доказательство
+
+100 оценок одного и того же LLM-судьи это не 100 независимых
+подтверждений, а один сигнал, повторённый 100 раз. С v0.9.0 у каждого
+доказательства есть донор, у каждого донора группа независимости, а
+Trust Score замораживается как предсказание до выполнения задачи:
+
+```python
+store.register_donor("claude_judge.v1", "judge", "Claude safety judge", independence_group="anthropic_llm")
+store.register_donor("scanner.v1", "security", "Secret scanner", independence_group="regex_scanner")
+
+obs_id = store.record_observation("agent-a", result.score, result.label)
+pred_id = store.record_prediction(obs_id, target="behavioral_incident")   # до задачи
+
+...  # агент выполняет задачу
+
+store.record_evidence(obs_id, "claude_judge.v1", "behavioral_evaluation", "safe", "Q3")
+store.record_evidence(obs_id, "scanner.v1", "secret_scan", "leak:api_key", "Q2")   # противоречие сохраняется
+store.record_outcome(pred_id, "scanner.v1", "secret_leak", occurred=True)           # только позже заморозки
+
+profile = store.evidence_profile("agent-a")
+profile.n_evidence, profile.n_donors, profile.n_independence_groups, profile.evidence_by_quality
+```
+
+| Уровень | Что это |
+|---|---|
+| Q0 | синтетика или тест |
+| Q1 | инфраструктурный сигнал (упал / не упал) |
+| Q2 | автоматическая проверка поведения (сканер, пробы) |
+| Q3 | LLM-судья или подтверждённый автоматический исход |
+| Q4 | человек или реальный исход в продакшене |
+
+Доноры поставляют доказательства, а не определяют истину, и в Trust
+Score не входят. `framework_evaluation` пишет в эти таблицы с v0.9.0:
+два донора (runtime-монитор и сканер секретов), предсказание до каждого
+прогона, исходы после. Схема: [AEP-001, раздел 7](docs/AEP-001.md).
+
 ## Модули v0.4
 
 Семь дополнительных модулей, расширяющих ядро (Trust Score + Compatibility Score):
@@ -501,6 +538,7 @@ agenomics/
 │   ├── phenotype.py          # Genome Schema, Phenotype (SPECIFICATION.md)
 │   ├── evaluation.py          # Real-World Evaluation Layer (v0.6.0)
 │   ├── evidence.py             # Evidence Store, персистентность на SQLite, схема AEP-001
+│   ├── evidence_graph.py       # Доноры, доказательства, предсказания, исходы (v0.9.0)
 │   ├── per_axis_drift.py         # Per-Axis Drift Monitor (v0.7.1)
 │   ├── heatmap.py                 # Team Compatibility Heatmap (v0.7.1)
 │   ├── hooks.py                    # EvidenceStoreHook, приёмная сторона внешних интеграций (v0.7.4)
@@ -618,7 +656,7 @@ Python. `requirements.txt` нужен для запуска этого репо�
 
 ### Открытые операционные вопросы (действие, не версия)
 
-- [ ] `prizolov-sports-ai`: SQLite или PostgreSQL. Если PostgreSQL, бэкенд `EvidenceStore` сдвигается из v0.9.5 раньше, поэтому ответ нужен до начала v0.9
+- [ ] `prizolov-sports-ai`: SQLite или PostgreSQL. Если PostgreSQL, бэкенд `EvidenceStore` сдвигается из v0.9.5 раньше, поэтому ответ нужен до начала Validation Engine (v0.9.x)
 - [ ] `atomic_agents_bot`: необъяснённый `ImportError`
 - [ ] `crewai_bot`: ждём исправления внешнего бага CrewAI
 - [ ] `txtai_bot`: падает в прогонах по расписанию, причина не разобрана (на 24.09.2026 experimental)
@@ -636,16 +674,22 @@ Python. `requirements.txt` нужен для запуска этого репо�
 - [x] Число уникальных геномов в `trust_reality_report()` (`n_unique_genomes`)
 - [x] Сверка `MODEL_VERSION` с моделью из ответа провайдера (`observed_model_version`); для фреймворков, чей результат не содержит модель, сверка честно не проводится
 
-### v0.9: Real Validation
+### v0.9.0: Evidence Graph (выполнено)
 
-- [ ] Outcome Model (`Observation → Prediction → Outcome` с явным `prediction_target`) для реальных production-агентов, не для тестовых задач `framework_evaluation`. Поглощает прежний пункт «реальная Incident Correlation на production-данных»
-- [ ] `PredictionSnapshot` как отдельный объект, явно отделённый от `Observation`
-- [ ] Поведенческая классификация ошибок (hallucination/wrong_decision/reasoning_error), требует LLM-судьи или разметки человеком
-- [ ] Токсичность в Adversarial Evaluation Suite, на том же LLM-судье (перенесено из v0.8.0)
+- [x] Доноры доказательств с группами независимости, доказательства с уровнем качества Q0-Q4 (`agenomics/evidence_graph.py`, AEP-001 v1.1)
+- [x] Prediction (Trust Score, замороженный до задачи, с `target` и `horizon`) и Outcome (исход от конкретного донора, строго позже заморозки). Заменяет прежние пункты «Outcome Model» и «`PredictionSnapshot`»
+- [x] `evidence_profile()`: объём, качество и независимость доказательств раздельно
+- [x] `framework_evaluation` на новой схеме: runtime-монитор и сканер секретов как доноры, предсказание до каждого прогона
+- [x] `genome_hash` в `framework_evaluation` описывает конфигурацию агента, а не состояние, выведенное из истории: число уникальных геномов перестало быть артефактом
+- [x] Тяжесть инцидента по классу ошибки; падения из-за окружения не снижают `predictability` и считаются отдельно как надёжность запуска
+
+### v0.9.x: Validation Engine
+
+- [ ] ROC-AUC, PR-AUC, Brier Score, calibration по парам Prediction → Outcome. Вычислимы только при достаточном объёме, публикуются с меткой `evidence_strength`, а не ждут уровня `strong`
+- [ ] Bootstrap CI, temporal holdout (прошлое для калибровки, будущее для слепой проверки), baseline-сравнение (historical incident rate, majority class, constant)
+- [ ] Статистика на трёх уровнях: наблюдение, конфигурация (`genome_hash`), агент; фильтры по `independence_group`, `quality_level`, `outcome_type` (без `infrastructure_error`)
+- [ ] LLM-судьи как доноры (`judge`): поведенческая классификация ошибок (hallucination/wrong_decision/reasoning_error) и токсичность в Adversarial Suite. Требует ключа API и решения о модели судьи
 - [ ] Adversarial-пробы в `framework_evaluation`: шаблонам нужна функция `ask(prompt)` помимо `run()`
-- [ ] Temporal Holdout: прошлое для калибровки, будущее для слепой проверки
-- [ ] Baseline-сравнение: historical incident rate, majority class, constant baseline
-- [ ] ROC-AUC, PR-AUC, Brier Score, calibration (прежний пункт «предиктивная валидность» из v0.8). Вычислимы только при достаточном объёме реальных данных, поэтому публикуются с меткой `evidence_strength`, а не ждут уровня `strong`
 
 ### v0.9.5: Release Candidate
 

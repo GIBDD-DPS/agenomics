@@ -46,6 +46,7 @@ CRITICAL_FILES = [
     "agenomics/evidence.py",
     "agenomics/hooks.py",
     "agenomics/adversarial.py",
+    "agenomics/evidence_graph.py",
     "agenomics/cli.py",
     "agenomics/reports.py",
     "agenomics/api.py",

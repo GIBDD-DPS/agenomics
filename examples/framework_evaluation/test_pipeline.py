@@ -473,6 +473,148 @@ def test_model_search_survives_raising_properties():
     assert _find_model_id(Weird()) == "openai/gpt-oss-20b"
 
 
+
+# --- v0.9.0: Evidence Graph и три исправления -----------------------------
+
+def _run(store, framework="fw", run_fn=lambda: None, **kwargs):
+    return run_framework_and_record(framework, run_fn, store, print_report=False, **kwargs)
+
+
+def _raise(exc):
+    def run():
+        raise exc
+    return run
+
+
+def test_genome_hash_identifies_configuration_not_history_state():
+    """До v0.9.0 хэш менялся почти каждый прогон из-за drift_rate и
+    axis_confidence, выведенных из истории: 19 агентов выглядели как сотни
+    "уникальных геномов"."""
+    store = EvidenceStore(":memory:")
+    for i in range(6):
+        _run(store, run_fn=(lambda: 1 / 0) if i % 2 else (lambda: None), model_version="groq/m1")
+    hashes = {o.genome_hash for o in store.get_observations("fw")}
+    assert len(hashes) == 1
+    _run(store, model_version="groq/m2")
+    assert len({o.genome_hash for o in store.get_observations("fw")}) == 2
+    store.close()
+
+
+def test_incident_severity_depends_on_error_class():
+    store = EvidenceStore(":memory:")
+    _run(store, "rate", _raise(RuntimeError("RateLimitError: rate limit reached")))
+    _run(store, "imp", _raise(ModuleNotFoundError("No module named 'x'")))
+    _run(store, "unknown", _raise(ValueError("agent returned garbage")))
+    severity = {fw: store.get_observations(fw)[0].incidents[0]["severity"] for fw in ("rate", "imp", "unknown")}
+    assert severity == {"rate": "minor", "imp": "moderate", "unknown": "severe"}
+    store.close()
+
+
+def test_leak_stays_severe():
+    store = EvidenceStore(":memory:")
+    _run(store, run_fn=lambda: print("token: Bearer abcdefghijklmnopqrstuvwxyz1234567890"))
+    assert store.get_observations("fw")[0].incidents[0]["severity"] == "severe"
+    store.close()
+
+
+def test_infrastructure_failures_do_not_lower_predictability():
+    from full_pipeline import _load_history_from_store
+    clean, noisy = EvidenceStore(":memory:"), EvidenceStore(":memory:")
+    for store in (clean, noisy):
+        for _ in range(3):
+            _run(store, run_fn=lambda: None)
+    for _ in range(3):
+        _run(noisy, run_fn=_raise(ModuleNotFoundError("No module named 'crewai'")))
+
+    statuses, _, _, reliability = _load_history_from_store(noisy, "fw")
+    assert statuses == ["success"] * 3
+    assert reliability == 0.5
+    assert _run(clean)["score"] == _run(noisy)["score"]
+    clean.close()
+    noisy.close()
+
+
+def test_legacy_infrastructure_failures_recognised_by_description():
+    """Данные до 0.7.12: категория other, класс только в тексте."""
+    from agenomics import Incident, IncidentCategory, IncidentSeverity
+    from full_pipeline import _load_history_from_store
+    store = EvidenceStore(":memory:")
+    store.record_observation(
+        "fw", 40.0, "High Risk", execution_status="error", duration_seconds=1.0,
+        incidents=[Incident("Framework fw: ImportError: cannot import name X", IncidentSeverity.SEVERE,
+                            category=IncidentCategory.OTHER)],
+    )
+    store.record_observation("fw", 50.0, "Conditional", execution_status="success", duration_seconds=1.0)
+    statuses, _, _, reliability = _load_history_from_store(store, "fw")
+    assert statuses == ["success"]
+    assert reliability == 0.5
+    store.close()
+
+
+def test_run_writes_prediction_evidence_and_outcomes_from_two_donors():
+    from datetime import datetime
+    store = EvidenceStore(":memory:")
+    summary = _run(store, run_fn=lambda: print("token: Bearer abcdefghijklmnopqrstuvwxyz1234567890"))
+
+    prediction = store.get_predictions("fw")[0]
+    assert prediction.id == summary["prediction_id"]
+    assert prediction.trust_score == summary["score"]
+    assert prediction.target == "incident_in_run"
+    outcomes = {o.outcome_type: o for o in prediction.outcomes}
+    assert outcomes["execution_error"].occurred is False
+    assert outcomes["secret_leak"].occurred is True
+    assert {o.independence_group for o in prediction.outcomes} == {"runtime", "regex_secret_scanner"}
+    for o in prediction.outcomes:
+        assert datetime.fromisoformat(o.observed_at) >= datetime.fromisoformat(prediction.frozen_at)
+
+    evidence = {e.evidence_type: e for e in store.get_evidence(observation_id=summary["observation_id"])}
+    assert evidence["execution"].finding == "success" and evidence["execution"].quality_level == "Q1"
+    assert evidence["secret_scan"].finding == "leak:bearer_token" and evidence["secret_scan"].quality_level == "Q2"
+
+    obs = store.get_observations("fw")[0]
+    assert obs.execution_status == "success"
+    assert obs.task_outcome == "failure"  # утечка это провал задачи, даже без исключения
+
+    profile = store.evidence_profile("fw")
+    assert profile.n_donors == 2 and profile.n_independence_groups == 2
+    assert profile.n_predictions_with_outcome == 1
+    store.close()
+
+
+def test_infrastructure_error_outcome_is_labelled_as_such():
+    store = EvidenceStore(":memory:")
+    _run(store, run_fn=_raise(ModuleNotFoundError("No module named 'x'")))
+    outcome_types = {o.outcome_type: o.occurred for o in store.get_predictions("fw")[0].outcomes}
+    assert outcome_types == {"infrastructure_error": True, "secret_leak": False}
+    assert store.get_evidence()[0].finding == "error:import_error"
+    store.close()
+
+
+def test_interrupted_run_leaves_prediction_without_outcome():
+    """Прогон, прерванный не исключением агента (KeyboardInterrupt,
+    убитый процесс), не должен задним числом получить исход."""
+    store = EvidenceStore(":memory:")
+    try:
+        _run(store, run_fn=_raise(KeyboardInterrupt()))
+        assert False, "KeyboardInterrupt должен пройти насквозь"
+    except KeyboardInterrupt:
+        pass
+    prediction = store.get_predictions("fw")[0]
+    assert prediction.outcomes == []
+    assert store.get_observations("fw")[0].execution_status is None
+    # и такой прогон не попадает в историю для следующего score
+    from full_pipeline import _load_history_from_store
+    assert _load_history_from_store(store, "fw")[0] == []
+    store.close()
+
+
+def test_runtime_reliability_in_summary():
+    store = EvidenceStore(":memory:")
+    _run(store)
+    assert _run(store, run_fn=_raise(ModuleNotFoundError("No module named 'x'")))["runtime_reliability"] == 0.5
+    store.close()
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     passed = 0

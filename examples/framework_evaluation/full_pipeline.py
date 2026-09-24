@@ -28,7 +28,7 @@ from typing import Callable, List, Optional
 from agenomics import EvidenceStore, TrustScorer, trust_report
 
 from classify_failures import classify_error
-from genome_from_capture import _detect_leaked_secrets, derive_genome_pre_run
+from genome_from_capture import SECRET_SCANNER_VERSION, _detect_leaked_secrets, derive_genome_pre_run
 
 # Помечает наблюдения, чей score посчитан ДО прогона (v0.7.12+). Записи
 # с source="full_pipeline.py" (без суффикса) сделаны старой версией,
@@ -48,6 +48,38 @@ _INFRASTRUCTURE_ERROR_CLASSES = {
 
 # AEP-001 (Privacy) предупреждает о description длиннее 200 символов.
 _MAX_DESCRIPTION = 200
+
+# [v0.9.0] Тяжесть инцидента по классу ошибки. До v0.9.0 любая ошибка
+# была SEVERE, и в базе rate limit весил столько же, сколько утечка
+# ключа. Нераспознанная ошибка ("other") остаётся SEVERE: это может быть
+# сбой самого агента, и занижать её без оснований нельзя.
+_SEVERITY_BY_ERROR_CLASS = {
+    "rate_limit": "minor",
+    "timeout": "moderate",
+    "provider_routing_error": "moderate",
+    "model_unavailable": "moderate",
+    "auth_error": "moderate",
+    "import_error": "moderate",
+    "known_upstream_bug": "moderate",
+}
+
+# [v0.9.0] Доноры доказательств этого пайплайна (AEP-001 v1.1). Независимы
+# друг от друга: runtime-монитор смотрит на исключения и время, сканер на
+# текст лога. Оба автоматические, поэтому ни один не даёт Q3/Q4.
+RUNTIME_DONOR = dict(
+    donor_id="framework_eval.runtime_monitor", donor_type="execution",
+    name="framework_evaluation runtime monitor", independence_group="runtime",
+)
+SCANNER_DONOR = dict(
+    donor_id=f"framework_eval.secret_scanner.v{SECRET_SCANNER_VERSION}", donor_type="security",
+    name="framework_evaluation regex secret scanner", independence_group="regex_secret_scanner",
+    version=SECRET_SCANNER_VERSION,
+)
+
+# Что предсказывает замороженный Trust Score каждого прогона: будет ли в
+# этом прогоне инцидент. Исходы от доноров уточняют, какой именно.
+PREDICTION_TARGET = "incident_in_run"
+PREDICTION_HORIZON = "current_run"
 
 # Где в результатах разных фреймворков обычно лежит идентификатор модели,
 # которую реально вернул провайдер: LangChain AIMessage.response_metadata
@@ -128,22 +160,33 @@ def _model_matches(declared: Optional[str], observed: Optional[str]) -> Optional
     return declared.endswith(observed) or observed.endswith(declared)
 
 
-def _genome_hash(genome) -> str:
-    """Тот же принцип, что в agenomics.ledger: детерминированный хэш
-    по всем полям датакласса, не по вручную поддерживаемому списку.
+def _configuration_hash(**configuration) -> str:
+    """[v0.9.0] Хэш конфигурации агента, а не его текущего состояния.
 
-    Раньше здесь был короткий ручной список из 5 полей (domain,
-    autonomy, data_safety, drift_rate, has_ledger), и два генома,
-    различающихся, например, только transparency или axis_confidence,
-    получали одинаковый хэш. Та же находка, что и в agenomics.ledger,
-    исправлена тем же способом: dataclasses.asdict() автоматически
-    охватывает все текущие и будущие поля AgentGenome."""
-    from dataclasses import asdict
-    payload = asdict(genome)
+    До v0.9.0 genome_hash считался по всем полям AgentGenome, включая
+    drift_rate и axis_confidence, которые выводятся из истории прогонов
+    и меняются почти каждый прогон (хотя бы из-за разброса длительности).
+    Итог: у одного агента за 59 прогонов было ~40 "разных геномов", и
+    число уникальных геномов в отчёте выглядело как разнообразие, хотя
+    независимых агентов было 19. Теперь хэш меняется только тогда, когда
+    меняется то, что делает агента другим агентом: фреймворк, его версия,
+    модель, промпт, домен, автономность, ledger."""
     return hashlib.sha256(json.dumps(
-        payload, sort_keys=True,
-        default=lambda o: getattr(o, "value", str(o)),
+        configuration, sort_keys=True, default=str,
     ).encode()).hexdigest()[:16]
+
+
+def _is_infrastructure_failure(obs) -> bool:
+    """Упал ли прогон из-за окружения, а не агента. Для данных до 0.7.12,
+    где категории infrastructure ещё не было, класс восстанавливается по
+    тексту инцидента тем же classify_error()."""
+    for inc in obs.incidents:
+        category = inc.get("category")
+        if category == "infrastructure":
+            return True
+        if category in (None, "other") and classify_error(inc.get("description") or "") in _INFRASTRUCTURE_ERROR_CLASSES:
+            return True
+    return False
 
 
 def _load_history_from_store(store: EvidenceStore, agent_id: str):
@@ -154,16 +197,32 @@ def _load_history_from_store(store: EvidenceStore, agent_id: str):
     другого источника) просто пропускаются, а не подставляются фиктивным
     значением. Лучше меньше истории, чем искажённая.
 
-    Возвращает статусы, длительности и, по одному bool на прогон, была
-    ли в нём найдена утечка секрета (инцидент категории data_leak)."""
+    Возвращает статусы и длительности для predictability, по одному bool
+    на прогон, была ли в нём найдена утечка секрета, и надёжность запуска.
+
+    [v0.9.0] Прогоны, упавшие из-за окружения (ImportError, нет ключа,
+    rate limit), в predictability не входят: это свойство CI и
+    зависимостей, а не агента, и до v0.9.0 оно занижало Trust Score
+    четырёх фреймворков, которые ни разу не запустились. Они учитываются
+    отдельно, в runtime_reliability. Утечки считаются по всем прогонам.
+
+    runtime_reliability: доля успешных прогонов среди всех, включая
+    упавшие из-за окружения; None, если прогонов не было."""
     statuses, durations, leaks = [], [], []
+    n_runs = n_success = 0
     for obs in store.get_observations(agent_id):
-        if obs.execution_status is not None:
-            statuses.append(obs.execution_status)
-            if obs.duration_seconds is not None:
-                durations.append(obs.duration_seconds)
-            leaks.append(any(inc.get("category") == "data_leak" for inc in obs.incidents))
-    return statuses, durations, leaks
+        if obs.execution_status is None:
+            continue
+        n_runs += 1
+        n_success += obs.execution_status == "success"
+        leaks.append(any(inc.get("category") == "data_leak" for inc in obs.incidents))
+        if obs.execution_status == "error" and _is_infrastructure_failure(obs):
+            continue
+        statuses.append(obs.execution_status)
+        if obs.duration_seconds is not None:
+            durations.append(obs.duration_seconds)
+    runtime_reliability = round(n_success / n_runs, 3) if n_runs else None
+    return statuses, durations, leaks, runtime_reliability
 
 
 def run_framework_and_record(
@@ -190,7 +249,9 @@ def run_framework_and_record(
 
     Возвращает словарь со сводкой: status, score, label, confidence,
     leaked_secrets, error_class, framework_version, observed_model_version,
-    model_match (True/False, None если модель в ответе не найдена)."""
+    model_match (True/False, None если модель в ответе не найдена),
+    runtime_reliability (доля успешных прогонов, включая этот),
+    observation_id, prediction_id."""
     import io, contextlib, logging, time
     from datetime import timezone
     from agenomics import Incident, IncidentCategory, IncidentSeverity, IncidentSource
@@ -200,7 +261,7 @@ def run_framework_and_record(
     # попадает в наблюдение как исход, но не влияет на его score:
     # иначе score и инциденты одного наблюдения зависят от одного и того
     # же события, и их корреляция ничего не доказывает (target leakage).
-    past_statuses, past_durations, past_leaks = _load_history_from_store(store, framework)
+    past_statuses, past_durations, past_leaks, past_reliability = _load_history_from_store(store, framework)
     derivation = derive_genome_pre_run(
         framework, domain=domain, autonomy=autonomy, has_ledger=has_ledger,
         framework_history_statuses=past_statuses,
@@ -209,6 +270,37 @@ def run_framework_and_record(
     )
     genome = derivation.genome
     result = TrustScorer(weight_profile=weight_profile).score(genome)
+    scored_at = datetime.now(timezone.utc)
+
+    # [v0.9.0] Наблюдение и предсказание пишутся в базу ДО запуска
+    # агента, исход дописывается после. Если процесс упадёт посередине,
+    # в базе останется предсказание без исхода: честное "исход неизвестен",
+    # а не запись, собранная задним числом.
+    framework_version = _framework_version(framework_package)
+    obs_id = store.record_observation(
+        agent_id=framework,
+        declared_score=result.score,
+        declared_label=result.label,
+        declared_confidence=result.confidence,
+        genome_hash=_configuration_hash(
+            framework=framework, framework_version=framework_version, model_version=model_version,
+            prompt_version=prompt_version, domain=domain, autonomy=autonomy, has_ledger=has_ledger,
+        ),
+        trust_model_version=None,  # проставится текущей версией agenomics
+        evaluation_period=scored_at.isoformat(),
+        request_count=1,
+        collector="sdk",
+        source=PRE_RUN_SOURCE,
+        model_version=model_version,
+        prompt_version=prompt_version,
+        framework_version=framework_version,
+        timestamp=scored_at,
+    )
+    store.register_donor(**RUNTIME_DONOR)
+    store.register_donor(**SCANNER_DONOR)
+    prediction_id = store.record_prediction(
+        obs_id, target=PREDICTION_TARGET, horizon=PREDICTION_HORIZON, frozen_at=scored_at,
+    )
 
     loggers = loggers or [""]
     stream = io.StringIO()
@@ -219,7 +311,6 @@ def run_framework_and_record(
         logging.getLogger(name).addHandler(handler)
         logging.getLogger(name).setLevel(logging.DEBUG)
 
-    started_at = datetime.now(timezone.utc)
     start_perf = time.perf_counter()
     status = "success"
     error_summary = None
@@ -261,7 +352,7 @@ def run_framework_and_record(
         )
         incidents.append(Incident(
             description=f"[{error_class}] Framework {framework}: {error_summary}"[:_MAX_DESCRIPTION],
-            severity=IncidentSeverity.SEVERE, category=category,
+            severity=IncidentSeverity(_SEVERITY_BY_ERROR_CLASS.get(error_class, "severe")), category=category,
             source=IncidentSource.AUTOMATED_MONITOR, confirmed=True,
         ))
     for secret_type in leaked_secret_types:
@@ -271,29 +362,39 @@ def run_framework_and_record(
             source=IncidentSource.AUTOMATED_MONITOR, confirmed=True,  # паттерн реально найден, не догадка
         ))
 
-    framework_version = _framework_version(framework_package)
     observed_model_version = _find_model_id(run_result)
     model_match = _model_matches(model_version, observed_model_version)
+    is_infrastructure = error_class in _INFRASTRUCTURE_ERROR_CLASSES
 
-    store.record_observation(
-        agent_id=framework,
-        declared_score=result.score,
-        declared_label=result.label,
-        declared_confidence=result.confidence,
-        genome_hash=_genome_hash(genome),
-        trust_model_version=None,  # проставится текущей версией agenomics
-        evaluation_period=started_at.isoformat(),
-        request_count=1,
-        collector="sdk",
-        source=PRE_RUN_SOURCE,
-        execution_status=status,
-        duration_seconds=duration,
-        model_version=model_version,
-        prompt_version=prompt_version,
-        framework_version=framework_version,
-        observed_model_version=observed_model_version,
-        incidents=incidents,
-        timestamp=started_at,
+    store.record_execution(obs_id, status, duration, observed_model_version=observed_model_version)
+    store.record_task_outcome(
+        obs_id, "success" if status == "success" and not leaked_secret_types else "failure", incidents,
+    )
+
+    # Доказательства и исходы от каждого донора отдельно: runtime-монитор
+    # и сканер не подтверждают друг друга, они смотрят на разное.
+    reference = f"framework_eval:{framework}:{scored_at.isoformat()}"
+    store.record_evidence(
+        obs_id, RUNTIME_DONOR["donor_id"], "execution",
+        "success" if status == "success" else f"error:{error_class}", "Q1", source_reference=reference,
+    )
+    store.record_evidence(
+        obs_id, SCANNER_DONOR["donor_id"], "secret_scan",
+        "leak:" + ",".join(leaked_secret_types) if leaked_secret_types else "clean", "Q2",
+        source_reference=reference,
+    )
+    store.record_outcome(
+        prediction_id, RUNTIME_DONOR["donor_id"],
+        "infrastructure_error" if is_infrastructure else "execution_error",
+        occurred=status == "error",
+    )
+    store.record_outcome(
+        prediction_id, SCANNER_DONOR["donor_id"], "secret_leak", occurred=bool(leaked_secret_types),
+    )
+
+    runs_total = len(past_leaks) + 1
+    runtime_reliability = round(
+        ((past_reliability or 0.0) * len(past_leaks) + (status == "success")) / runs_total, 3,
     )
 
     if print_report:
@@ -302,7 +403,8 @@ def run_framework_and_record(
             print("\nЗаметки о выводе генома:")
             for note in derivation.derivation_notes:
                 print(f"  - {note}")
-        print(f"\nScore посчитан до прогона по истории из {len(past_statuses)} прошлых прогонов")
+        print(f"\nScore посчитан до прогона по истории из {len(past_statuses)} прошлых прогонов "
+              f"(без упавших из-за окружения); надёжность запуска: {runtime_reliability:.0%}")
 
     return {
         "framework": framework, "status": status, "score": result.score,
@@ -312,4 +414,7 @@ def run_framework_and_record(
         "framework_version": framework_version,
         "observed_model_version": observed_model_version,
         "model_match": model_match,
+        "runtime_reliability": runtime_reliability,
+        "observation_id": obs_id,
+        "prediction_id": prediction_id,
     }
