@@ -139,7 +139,10 @@ def main():
         results.append(summary)
         marker = "✅" if summary["status"] == "success" else "❌"
         leak_marker = " ⚠️ УТЕЧКА" if summary["leaked_secrets"] else ""
-        print(f"{marker} {name:20s} score={summary['score']:.1f} ({summary['label']}){leak_marker}")
+        # Trust Score и надёжность запуска разные величины (v0.9.0): score не
+        # учитывает падения из-за окружения, надёжность учитывает всё.
+        print(f"{marker} {name:20s} score={summary['score']:.1f} ({summary['label']}) "
+              f"reliability={summary['runtime_reliability']:.0%}{leak_marker}")
 
     store.close()
 

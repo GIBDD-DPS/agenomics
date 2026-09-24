@@ -8,7 +8,8 @@ evidence.py. Персистентное хранилище наблюдений 
 процесса, и всё пропадало при перезапуске. EvidenceStore решает именно это:
 пишет в обычный SQLite-файл, который переживает рестарт.
 
-Схема соответствует Agenomics Evidence Protocol v1.0 (docs/AEP-001.md).
+Схема соответствует Agenomics Evidence Protocol v1.1 (docs/AEP-001.md).
+Доноры, доказательства, предсказания и исходы (v0.9.0) в evidence_graph.py.
 
 Использует sqlite3 из стандартной библиотеки, новых зависимостей нет.
 По умолчанию пишет в файл на диске, для тестов можно передать ":memory:".
@@ -23,9 +24,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
+from .evidence_graph import GRAPH_SCHEMA_SQL, EvidenceGraphMixin
 from .feedback import Incident, IncidentCategory, IncidentSeverity, IncidentSource
 
-AEP_SCHEMA_VERSION = "1.0"
+# 1.1 (v0.9.0): добавлены таблицы donors/evidence/predictions/outcomes.
+# Изменение аддитивное, данные 1.0 остаются валидными.
+AEP_SCHEMA_VERSION = "1.1"
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS observations (
@@ -126,7 +130,7 @@ _EXPECTED_OBSERVATION_COLUMNS = {
 }
 
 
-class EvidenceStore:
+class EvidenceStore(EvidenceGraphMixin):
     """Хранит наблюдения и инциденты в SQLite по схеме AEP-001.
     Не заменяет RealWorldEvaluationLayer, только даёт ему пережить рестарт."""
 
@@ -143,6 +147,7 @@ class EvidenceStore:
             # честно уже задокументированное ограничение, не новое.
             self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.executescript(_SCHEMA_SQL)
+        self._conn.executescript(GRAPH_SCHEMA_SQL)
         self._conn.commit()
         self._migrate_schema()
 
@@ -239,6 +244,34 @@ class EvidenceStore:
         self._insert_incidents(obs_id, incidents)
         self._conn.commit()
         return obs_id
+
+    def record_execution(
+        self,
+        observation_id: int,
+        execution_status: str,
+        duration_seconds: Optional[float] = None,
+        observed_model_version: Optional[str] = None,
+    ) -> None:
+        """[v0.9.0] Дописывает статус выполнения к наблюдению, записанному
+        до запуска агента (score и предсказание уже заморожены). Один раз:
+        повторный вызов это ValueError, как и для record_task_outcome().
+        observed_model_version известна только из ответа провайдера,
+        поэтому пишется здесь, а не в record_observation()."""
+        if execution_status not in ("success", "error"):
+            raise ValueError(f"execution_status должен быть 'success' или 'error', получено {execution_status!r}")
+        row = self._conn.execute(
+            "SELECT execution_status FROM observations WHERE id = ?", (observation_id,)
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"наблюдение id={observation_id} не найдено")
+        if row[0] is not None:
+            raise ValueError(f"у наблюдения id={observation_id} статус выполнения уже записан ({row[0]!r})")
+        self._conn.execute(
+            "UPDATE observations SET execution_status = ?, duration_seconds = ?, "
+            "observed_model_version = COALESCE(?, observed_model_version) WHERE id = ?",
+            (execution_status, duration_seconds, observed_model_version, observation_id),
+        )
+        self._conn.commit()
 
     def record_task_outcome(
         self,

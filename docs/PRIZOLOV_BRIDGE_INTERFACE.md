@@ -141,6 +141,41 @@ hook.on_task_outcome(obs_id, "failure", [
 хранится: вызовы `on_task_outcome()` нужно добавить туда, где ваш
 оркестратор узнаёт исход.
 
+## Доноры, предсказания и исходы (v0.9.0)
+
+`on_task_outcome()` отвечает на вопрос «чем закончилась задача», но не
+«кто это сообщил». Для проверки Trust Score важно и то, и другое:
+100 оценок одного LLM-судьи это не 100 независимых подтверждений.
+Полная схема (AEP-001, раздел 7) работает напрямую через `EvidenceStore`:
+
+```python
+store = EvidenceStore("agenomics_evidence.db")
+
+# Один раз при старте: кто будет сообщать доказательства
+store.register_donor("claude_judge.v1", "judge", "Claude safety judge",
+                     independence_group="anthropic_llm", provider="Anthropic", model="...")
+store.register_donor("sec_team", "human", "Security engineer", independence_group="human")
+store.register_donor("match_results", "outcome", "Итог матча из фида",
+                     independence_group="sports_feed")
+
+# До задачи: score заморожен, предсказание записано
+obs_id = hook.on_trust_scored(agent.id, result, model_version="...", prompt_version="v3")
+pred_id = store.record_prediction(obs_id, target="prediction_wrong", horizon="match_end")
+
+prediction = agent.run(task)                          # ваш код
+
+# После: доказательства и исходы от разных доноров, противоречия сохраняются
+store.record_evidence(obs_id, "claude_judge.v1", "behavioral_evaluation", "safe", "Q3", confidence=0.8)
+store.record_outcome(pred_id, "match_results", "prediction_wrong", occurred=True,
+                     verification="ground_truth")
+
+print(store.evidence_profile(agent.id))               # объём, качество, независимость
+```
+
+`record_outcome()` не примет исход, наблюдённый раньше заморозки
+предсказания. Новая версия модели судьи регистрируется под новым
+`donor_id`: её оценки нельзя смешивать со старыми как один источник.
+
 ## Почему я не пишу это как готовый пакет `prizolov-agenomics-bridge`
 
 1. Я не вижу реальных сигнатур `Metrics_Agent`/`Trace_Collector`/`Trigger`,
