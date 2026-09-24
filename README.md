@@ -8,10 +8,10 @@ Genetics for AI Agents. Predictability and compatibility scoring for autonomous 
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Status](https://img.shields.io/badge/status-v0.9.0-orange.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-v0.9.1-orange.svg)](CHANGELOG.md)
 [![PyPI](https://img.shields.io/badge/PyPI-agenomics-blue.svg)](https://pypi.org/project/agenomics/)
 
-> **Автор**: Dm.Andreyanov **Версия**: 0.9.0 **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
+> **Автор**: Dm.Andreyanov **Версия**: 0.9.1 **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
 >
 > 📐 Формальная спецификация конвейера (Genome → Genome Schema → Phenotype
 > → Trust Model → Compatibility Model → Drift Model → Observed Behaviour
@@ -322,6 +322,31 @@ agenomics evidence list agenomics_evidence.db --agent-id support-bot
 уже существующих функций. Не полный набор из гипотетического списка
 (`audit`, `drift`, `evidence export`), это следующий шаг, не в этом релизе.
 
+### Validation Engine (v0.9.1). Предсказывает ли Trust Score хоть что-нибудь
+
+```bash
+agenomics validate agenomics_evidence.db                            # все исходы, без infrastructure_error
+agenomics validate agenomics_evidence.db --outcome-type secret_leak --json
+```
+
+Работает только на парах Prediction → Outcome из Evidence Graph, где
+score по построению не мог зависеть от исхода. Риск = 100 − Trust Score.
+
+| Что | Как |
+|---|---|
+| Ранжирование | ROC-AUC, PR-AUC на всей выборке и на поздней части (temporal holdout) |
+| Неопределённость | 95% CI кластерным bootstrap **по агентам**: прогоны одного агента не независимы |
+| Главный baseline | историческая частота инцидентов этого же агента. Если score не лучше «этот агент обычно падает», он не добавляет информации сверх имени агента |
+| Другие baseline | константа (Brier), majority class (accuracy) |
+| Калибровка | Brier и ECE по наивной вероятности p = риск / 100: Trust Score не калиброван как вероятность, и отчёт это показывает |
+| Уровень агента | Spearman среднего score агента с его частотой событий |
+
+Вердикт никогда не «validated»: `insufficient_data`, `no_evidence_of_signal`,
+`signal_not_better_than_baseline` или `signal_beats_baseline`, причём
+последний требует, чтобы 95% CI разницы AUC со baseline истории агента
+был выше нуля. Прогоны, упавшие из-за окружения, исключаются целиком:
+агент в них не работал.
+
 ### Adversarial Evaluation Suite (v0.8.0). Активное зондирование агента
 
 `genome_from_capture.py` выводит `data_safety` из того, нашлась ли утечка
@@ -539,6 +564,7 @@ agenomics/
 │   ├── evaluation.py          # Real-World Evaluation Layer (v0.6.0)
 │   ├── evidence.py             # Evidence Store, персистентность на SQLite, схема AEP-001
 │   ├── evidence_graph.py       # Доноры, доказательства, предсказания, исходы (v0.9.0)
+│   ├── validation.py           # Validation Engine: предсказывает ли score исходы (v0.9.1)
 │   ├── per_axis_drift.py         # Per-Axis Drift Monitor (v0.7.1)
 │   ├── heatmap.py                 # Team Compatibility Heatmap (v0.7.1)
 │   ├── hooks.py                    # EvidenceStoreHook, приёмная сторона внешних интеграций (v0.7.4)
@@ -683,11 +709,17 @@ Python. `requirements.txt` нужен для запуска этого репо�
 - [x] `genome_hash` в `framework_evaluation` описывает конфигурацию агента, а не состояние, выведенное из истории: число уникальных геномов перестало быть артефактом
 - [x] Тяжесть инцидента по классу ошибки; падения из-за окружения не снижают `predictability` и считаются отдельно как надёжность запуска
 
-### v0.9.x: Validation Engine
+### v0.9.1: Validation Engine (выполнено)
 
-- [ ] ROC-AUC, PR-AUC, Brier Score, calibration по парам Prediction → Outcome. Вычислимы только при достаточном объёме, публикуются с меткой `evidence_strength`, а не ждут уровня `strong`
-- [ ] Bootstrap CI, temporal holdout (прошлое для калибровки, будущее для слепой проверки), baseline-сравнение (historical incident rate, majority class, constant)
-- [ ] Статистика на трёх уровнях: наблюдение, конфигурация (`genome_hash`), агент; фильтры по `independence_group`, `quality_level`, `outcome_type` (без `infrastructure_error`)
+- [x] ROC-AUC, PR-AUC, Brier, калибровка (ECE) по парам Prediction → Outcome, с меткой `evidence_strength` (`agenomics/validation.py`, `agenomics validate`)
+- [x] Кластерный bootstrap CI по агентам, temporal holdout, baseline: константа, majority class, историческая частота инцидентов агента. Победа над baseline засчитывается только если CI разницы AUC выше нуля
+- [x] Уровни наблюдения и агента (Spearman), число конфигураций; фильтры по `outcome_type`, `independence_group`, `verification`, `target`; предсказания с `infrastructure_error` исключаются целиком
+- [x] Отчёт в каждом прогоне Framework Evaluation (информационный, CI не валит)
+
+### v0.9.x: дальше
+
+- [ ] Фильтр по `quality_level`: у исходов его нет, он есть у доказательств; нужно решить, как связывать
+- [ ] Статистика на уровне конфигурации (`genome_hash`) как отдельный уровень, а не только счётчик
 - [ ] LLM-судьи как доноры (`judge`): поведенческая классификация ошибок (hallucination/wrong_decision/reasoning_error) и токсичность в Adversarial Suite. Требует ключа API и решения о модели судьи
 - [ ] Adversarial-пробы в `framework_evaluation`: шаблонам нужна функция `ask(prompt)` помимо `run()`
 

@@ -75,6 +75,16 @@ jobs:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
 
+      # Validation Engine (v0.9.1): предсказывает ли замороженный Trust Score
+      # исходы. Отчёт, а не проверка: insufficient_data на ранних данных
+      # нормален, поэтому шаг job не валит.
+      - name: Validation report
+        if: always()
+        continue-on-error: true
+        run: |
+          agenomics validate frameworks_evidence.db
+          agenomics validate frameworks_evidence.db --outcome-type secret_leak
+
       - name: Save evidence database for the next run
         if: always()
         uses: actions/cache/save@v4

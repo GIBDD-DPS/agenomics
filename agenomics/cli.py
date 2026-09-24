@@ -8,8 +8,8 @@ cli.py. Минимальный командный интерфейс метод�
 Не полный набор команд из гипотетического roadmap (agenomics audit,
 agenomics drift и т.д.) - только то, что реально можно построить сейчас
 поверх уже существующих, протестированных функций, без придумывания
-новой логики специально для CLI. Пять команд: score, report,
-compatibility, evidence list, genome validate.
+новой логики специально для CLI. Команды: score, report,
+compatibility, evidence list, genome validate и (v0.9.1) validate.
 
 Использование:
     agenomics score genome.json
@@ -17,6 +17,7 @@ compatibility, evidence list, genome validate.
     agenomics compatibility team.json
     agenomics evidence list agenomics_evidence.db --agent-id support-bot
     agenomics genome validate genome.json
+    agenomics validate agenomics_evidence.db --outcome-type secret_leak
 """
 
 import argparse
@@ -127,6 +128,33 @@ def cmd_genome_validate(args) -> int:
     return 0
 
 
+def cmd_validate(args) -> int:
+    """Сопоставляет замороженные предсказания с исходами (Validation
+    Engine). Код выхода 0 при любом вердикте: это отчёт, а не проверка
+    качества кода, "insufficient_data" на ранних данных нормален."""
+    from dataclasses import asdict
+    from .validation import validate, validation_report_text
+
+    if not Path(args.db_path).exists():
+        print(f"Ошибка: файл базы не найден: {args.db_path}", file=sys.stderr)
+        return 1
+    store = EvidenceStore(args.db_path)
+    try:
+        report = validate(
+            store, target=args.target, outcome_types=args.outcome_type,
+            exclude_outcome_types=args.exclude_outcome_type,
+            independence_groups=args.independence_group, agent_id=args.agent_id,
+            calibration_fraction=args.calibration_fraction,
+        )
+    finally:
+        store.close()
+    if args.json:
+        print(json.dumps(asdict(report), ensure_ascii=False, indent=2, default=str))
+    else:
+        print(validation_report_text(report))
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="agenomics", description="Agenomics CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -161,7 +189,25 @@ def main(argv=None) -> int:
     p_genome_validate.add_argument("genome_file")
     p_genome_validate.set_defaults(func=cmd_genome_validate)
 
+    p_validate = subparsers.add_parser(
+        "validate", help="Проверить, предсказывает ли замороженный Trust Score исходы (Validation Engine)",
+    )
+    p_validate.add_argument("db_path")
+    p_validate.add_argument("--target", default=None)
+    p_validate.add_argument("--outcome-type", action="append", default=None,
+                            help="Учитывать только эти типы исходов (можно несколько раз)")
+    p_validate.add_argument("--exclude-outcome-type", action="append", default=None,
+                            help="Исключить предсказания с этим произошедшим исходом (по умолчанию infrastructure_error)")
+    p_validate.add_argument("--independence-group", action="append", default=None)
+    p_validate.add_argument("--agent-id", default=None)
+    p_validate.add_argument("--calibration-fraction", type=float, default=0.6)
+    p_validate.add_argument("--json", action="store_true")
+    p_validate.set_defaults(func=cmd_validate)
+
     args = parser.parse_args(argv)
+    if getattr(args, "command", None) == "validate" and args.exclude_outcome_type is None:
+        from .validation import DEFAULT_EXCLUDED_OUTCOME_TYPES
+        args.exclude_outcome_type = list(DEFAULT_EXCLUDED_OUTCOME_TYPES)
     return args.func(args)
 
 
