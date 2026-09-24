@@ -8,10 +8,10 @@ Genetics for AI Agents. Predictability and compatibility scoring for autonomous 
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Status](https://img.shields.io/badge/status-v0.7.11-orange.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-v0.7.12-orange.svg)](CHANGELOG.md)
 [![PyPI](https://img.shields.io/badge/PyPI-agenomics-blue.svg)](https://pypi.org/project/agenomics/)
 
-> **Автор**: Dm.Andreyanov **Версия**: 0.7.11 **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
+> **Автор**: Dm.Andreyanov **Версия**: 0.7.12 **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
 >
 > 📐 Формальная спецификация конвейера (Genome → Genome Schema → Phenotype
 > → Trust Model → Compatibility Model → Drift Model → Observed Behaviour
@@ -551,6 +551,8 @@ Python. `requirements.txt` нужен для запуска этого репо�
 - [x] v0.7.11: `EvidenceStore` получил `model_version`/`prompt_version` (какая LLM и какой промпт работали в момент наблюдения, отдельно от `trust_model_version`)
 - [x] v0.7.11: все 19 шаблонов `framework_evaluation` объявляют `MODEL_VERSION`, тест сверяет его с моделью, реально вызываемой в `run()`
 - [x] v0.7.11: `docs/AEP-001.md` документирует `execution_status`/`duration_seconds` (писались с v0.7.2, но не были описаны в протоколе)
+- [x] v0.7.12: `framework_evaluation` считает Trust Score **до** прогона, только из прошлых прогонов. Устраняет target leakage: раньше score и инциденты одного наблюдения зависели от одного и того же прогона. Новые наблюдения помечены `source="full_pipeline.py/pre-run"`, данные до v0.7.12 для проверки связи score с инцидентами не годятся
+- [x] v0.7.12: `IncidentCategory.INFRASTRUCTURE`, ошибка прогона классифицируется при записи (сбой окружения отдельно от поведения агента)
 
 ### Открытые операционные вопросы (действие, не версия)
 
@@ -567,6 +569,9 @@ Python. `requirements.txt` нужен для запуска этого репо�
 - [ ] Расширение маркеров (`instrumentation_block.md`) для реальных production-интеграций: маркеры про исход задачи, не только про факты действий
 - [ ] Строгая JSON Schema/Pydantic-валидация вывода `PromptToGenomeExtractor`
 - [ ] Формальное разделение Framework Evaluation CI на required/experimental (сейчас только текстовая сводка PASS/FAIL)
+- [ ] `framework_version` в наблюдении (`importlib.metadata.version()`): CI ставит библиотеки фреймворков без фиксированных версий, и их обновление между прогонами сейчас невидимо
+- [ ] Число уникальных геномов рядом с числом наблюдений в `trust_reality_report()`: 50 повторных прогонов одного генома это не 50 независимых агентов
+- [ ] Сверка `MODEL_VERSION` с моделью из ответа провайдера в рантайме, а не только статически по коду шаблона
 
 ### v0.9: Real Validation
 
