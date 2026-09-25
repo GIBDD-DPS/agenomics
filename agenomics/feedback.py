@@ -1,9 +1,9 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 feedback.py. Incident Feedback Loop методологии Agenomics.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.7.3
 
 Пересчитывает декларативный (self-reported) Trust Score в "наблюдаемый"
 (Observed Trust Score) с учётом реальных подтверждённых инцидентов,

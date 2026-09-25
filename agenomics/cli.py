@@ -1,9 +1,9 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 cli.py. Минимальный командный интерфейс методологии Agenomics.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.7.10
 
 Не полный набор команд из гипотетического roadmap (agenomics audit,
 agenomics drift и т.д.) - только то, что реально можно построить сейчас

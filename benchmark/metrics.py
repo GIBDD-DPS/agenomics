@@ -1,9 +1,9 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 metrics.py — метрики Agenomics Synthetic Benchmark Suite.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.6.0
 
 Каждая метрика возвращает BenchmarkResult с явным полем `status`:
   - "computed"       — реально вычислено на синтетических данных

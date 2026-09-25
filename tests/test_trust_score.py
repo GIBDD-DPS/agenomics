@@ -1,9 +1,9 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 test_trust_score.py — тесты TrustScorer методологии Agenomics.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.4.1
 """
 
 from agenomics import AgentGenome, TrustScorer, Autonomy, ImpactTier

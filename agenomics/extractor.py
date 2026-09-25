@@ -1,9 +1,9 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 extractor.py. Prompt-to-Genome Extractor методологии Agenomics.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.8.0
 
 Автоматизирует получение AgentGenome из сырого системного промпта агента.
 

@@ -1,9 +1,9 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 evaluation.py. Real-World Evaluation Layer.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.7.10
 
 До этого модуля компоненты уровня Observed Behaviour существовали по
 отдельности: IncidentFeedback пересчитывал score по инцидентам разово,

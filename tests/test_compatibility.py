@@ -1,9 +1,9 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 test_compatibility.py — тесты CompatibilityScorer методологии Agenomics.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.2.0
 """
 
 from agenomics import AgentGenome, CompatibilityScorer

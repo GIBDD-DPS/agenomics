@@ -1,3 +1,4 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 Шаблон под Atomic Agents, переведён на Groq (бесплатный провайдер, через
 instructor.from_groq()). Требует пакет groq и переменную GROQ_API_KEY.

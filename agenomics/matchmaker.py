@@ -1,9 +1,9 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 matchmaker.py — Genome Matchmaker методологии Agenomics.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.4.0
 
 Дан список кандидатов-агентов и список нужных ролей — подбирает
 назначение с максимальным средним Compatibility Score команды.

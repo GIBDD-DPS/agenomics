@@ -1,3 +1,4 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 Шаблон под Google ADK (Agent Development Kit). Уже использует бесплатный
 провайдер (Gemini API free tier через Google AI Studio), изменений в

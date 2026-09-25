@@ -1,9 +1,9 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 evidence_graph.py. Доноры, доказательства, предсказания и исходы (AEP-001 v1.1).
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.9.0
 
 До v0.9.0 EvidenceStore хранил наблюдения и инциденты, но не то, КТО
 сообщил каждое доказательство. Из-за этого 100 оценок от одного и того

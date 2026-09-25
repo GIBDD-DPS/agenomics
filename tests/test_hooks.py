@@ -1,3 +1,4 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 test_hooks.py. Тесты EvidenceStoreHook.
 

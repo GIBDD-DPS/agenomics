@@ -1,9 +1,9 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 run_benchmark.py — CLI-запуск Agenomics Synthetic Benchmark Suite.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.6.1
 
 Запуск:
     PYTHONPATH=. python3 benchmark/run_benchmark.py

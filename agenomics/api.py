@@ -1,9 +1,9 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 api.py. Минимальный веб-API методологии Agenomics.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.9.2
 
 Оборачивает уже протестированные TrustScorer и CompatibilityScorer
 (см. trust_score.py, compatibility.py и соответствующие тесты) в
@@ -54,7 +54,7 @@ app = FastAPI(
         "Genetics for AI Agents. Trust Score и Compatibility Score для "
         "автономных ИИ-агентов. Методология: см. docs/METHODOLOGY.md в репозитории."
     ),
-    version="0.9.2",
+    version="0.9.3",
 )
 
 # CORS не был настроен вовсе. Если API вызывается напрямую из браузера
@@ -188,7 +188,7 @@ def _to_genome(payload: GenomeRequest) -> AgentGenome:
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "service": "agenomics-api", "version": "0.9.2"}
+    return {"status": "ok", "service": "agenomics-api", "version": "0.9.3"}
 
 
 @app.get("/")

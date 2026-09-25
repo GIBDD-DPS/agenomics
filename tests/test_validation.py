@@ -1,3 +1,4 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 test_validation.py. Тесты Validation Engine (v0.9.1).
 

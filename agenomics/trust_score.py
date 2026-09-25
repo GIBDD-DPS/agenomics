@@ -1,9 +1,9 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 trust_score.py: реализация формулы Trust Score методологии Agenomics.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.7.10
 
 Логика соответствует промпту "Trust Auditor v0.2" плюс улучшения v0.3-0.4:
   1. Классификация Impact Tier по домену агента (включая множественные домены).

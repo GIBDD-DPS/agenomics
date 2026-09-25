@@ -1,3 +1,4 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 Шаблон под DSPy (Stanford), переведён на Groq (бесплатный провайдер).
 Требует переменную окружения GROQ_API_KEY.

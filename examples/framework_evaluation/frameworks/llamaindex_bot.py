@@ -1,3 +1,4 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 Шаблон под LlamaIndex, переведён на Groq (бесплатный провайдер).
 Требует пакет llama-index-llms-groq и переменную окружения GROQ_API_KEY.

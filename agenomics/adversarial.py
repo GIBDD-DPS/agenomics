@@ -1,9 +1,9 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 adversarial.py. Adversarial Evaluation Suite методологии Agenomics.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.8.0
 
 Активное зондирование агента до продакшена, а не пассивное наблюдение
 за логом его обычной работы. genome_from_capture.py выводит data_safety

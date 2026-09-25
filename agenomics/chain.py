@@ -1,9 +1,9 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 chain.py — Chain Risk Aggregator методологии Agenomics.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.4.0
 
 CompatibilityScorer оценивает агентов как "параллельных коллег" (команду).
 Но часто агенты работают ЦЕПОЧКОЙ: выход агента A — вход агента B.

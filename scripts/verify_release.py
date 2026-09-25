@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 verify_release.py. Проверяет, что все файлы, которые должны быть в
 репозитории, реально на месте, прежде чем публиковать релиз или тег.
@@ -65,6 +66,16 @@ CRITICAL_FILES = [
     "examples/framework_evaluation/run_all_frameworks.py",
     "examples/framework_evaluation/classify_failures.py",
     ".github/workflows/tests.yml",
+    "NOTICE",
+    "IP/COPYRIGHT.md",
+    "IP/AUTHOR.md",
+    "IP/TRADEMARKS.md",
+    "IP/THIRD_PARTY_LICENSES.md",
+    "IP/CREATION_RECORD.md",
+    "IP/RELEASE_POLICY.md",
+    "IP/IP_MANIFEST.json",
+    "scripts/ip_headers.py",
+    "scripts/release_manifest.py",
     ".github/workflows/framework_eval.yml",
 ]
 
