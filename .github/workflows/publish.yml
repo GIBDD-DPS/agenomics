@@ -5,6 +5,11 @@ name: Publish
 # GitHub Release → PR с манифестом и строкой CREATION_RECORD в main.
 # На PyPI публикуется через Trusted Publishing: токен не хранится ни
 # в репозитории, ни на компьютере автора.
+#
+# Публикация и Release включаются переменной репозитория
+# PYPI_TRUSTED_PUBLISHING=true (Settings → Secrets and variables → Actions
+# → Variables) после настройки издателя на PyPI. Без неё тег проходит
+# только проверки и сборку, а пакет публикуется вручную.
 
 on:
   push:
@@ -91,6 +96,7 @@ jobs:
 
   publish:
     needs: build
+    if: vars.PYPI_TRUSTED_PUBLISHING == 'true'
     runs-on: ubuntu-24.04
     environment:
       name: pypi

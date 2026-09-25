@@ -49,6 +49,10 @@
   environment `pypi`.
 - **GitHub** → Settings → Actions → General → Workflow permissions →
   «Allow GitHub Actions to create and approve pull requests» (для шага 11).
+- **GitHub** → Settings → Secrets and variables → Actions → Variables →
+  `PYPI_TRUSTED_PUBLISHING` = `true`. Пока переменной нет, workflow по тегу
+  выполняет только шаги 5–7 (проверки, сборка, манифест), а шаги 8–11 —
+  вручную (см. ниже).
 - По желанию: Settings → Environments → `pypi` → Required reviewers. Тогда
   публикация ждёт подтверждения в интерфейсе GitHub.
 
