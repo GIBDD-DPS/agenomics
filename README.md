@@ -743,7 +743,7 @@ Python. `requirements.txt` нужен для запуска этого репо�
 ### v1.0: Stable
 
 - [ ] `Development Status` classifier → Production/Stable
-- [ ] Release pipeline: TestPyPI → smoke test → PyPI → GitHub Release → тег
+- [x] Release pipeline: тег → тесты → сборка → smoke test → PyPI (Trusted Publishing) → сверка с манифестом → GitHub Release ([порядок выпуска](IP/RELEASE_POLICY.md))
 - [ ] Веб-калькулятор на prizolov.ru (перенесён из v0.8)
 - [ ] Реструктуризация `docs/` на поддиректории, если объём документации разрастётся
 

@@ -6,6 +6,7 @@ release_manifest.py. Манифест исходников релиза с SHA-2
     python scripts/release_manifest.py v0.9.2              # по тегу или коммиту
     python scripts/release_manifest.py --verify v0.9.2     # пересчитать и сверить с release/v0.9.2/
     python scripts/release_manifest.py --verify-wheel dist/agenomics-0.9.2-py3-none-any.whl
+    python scripts/release_manifest.py --record v0.9.2     # дописать строку в IP/CREATION_RECORD.md
 
 Манифест строится по коммиту из Git, а не по рабочей копии: он описывает
 то, что было выпущено, даже если рабочая копия уже ушла вперёд.
@@ -139,12 +140,52 @@ def verify_wheel(wheel: str) -> int:
     return 0
 
 
+def creation_record_row(tag: str) -> str:
+    """Строка IP/CREATION_RECORD.md для версии по тегу: дата из CHANGELOG,
+    коммит версии, коммит слияния и PR, краткое описание из CHANGELOG
+    (первая фраза вступления до двоеточия, точки или скобки; нет
+    вступления — заголовок PR). Описание — черновик: строка попадает в
+    main через PR, где её можно поправить."""
+    commit = git("rev-parse", f"{tag}^{{commit}}").decode().strip()
+    version = re.search(rb'^version = "([^"]+)"', git("show", f"{commit}:pyproject.toml"), re.M).group(1).decode()
+    changelog = git("show", f"{commit}:CHANGELOG.md").decode("utf-8")
+    section = re.search(rf"^## \[{re.escape(version)}\] - (\S+)\n(.*?)(?=^## \[|\Z)", changelog, re.M | re.S)
+    date, body = section.group(1), section.group(2)
+    introduced = git("log", commit, "--reverse", "--format=%h", "-S", f'version = "{version}"',
+                     "--", "pyproject.toml").decode().split()
+    version_commit = f"`{introduced[0]}`" if introduced else "—"
+    message = git("log", "-1", "--format=%B", commit).decode("utf-8").strip().split("\n")
+    pr = re.match(r"Merge pull request #(\d+)", message[0])
+    merge = f"`{commit[:7]}` (PR #{pr.group(1)})" if pr else f"`{commit[:7]}`"
+    intro = body.strip().split("\n")[0]
+    if intro and not intro.startswith("#"):
+        summary = re.split(r"[:.](?:\s|$)| \(", intro, maxsplit=1)[0].strip()
+    else:
+        summary = message[-1].strip() if pr and len(message) > 1 else f"Версия {version}"
+        summary = re.sub(r"^Release \S+:\s*", "", summary)
+    return f"| {version} | {date} | {version_commit} | {merge} | {summary} |"
+
+
+def append_record(tag: str) -> bool:
+    """Дописывает строку версии, если её ещё нет. Записи только добавляются."""
+    path = ROOT / "IP" / "CREATION_RECORD.md"
+    text = path.read_text(encoding="utf-8")
+    row = creation_record_row(tag)
+    if re.search(rf"^\| {re.escape(row.split(' | ')[0][2:])} \|", text, re.M):
+        return False
+    path.write_text(text.rstrip("\n") + "\n" + row + "\n", encoding="utf-8")
+    return True
+
+
 def main(argv=None) -> int:
     args = argv if argv is not None else sys.argv[1:]
     if len(args) == 2 and args[0] == "--verify":
         return verify(args[1])
     if len(args) == 2 and args[0] == "--verify-wheel":
         return verify_wheel(args[1])
+    if len(args) == 2 and args[0] == "--record":
+        print("Дописано" if append_record(args[1]) else "Строка версии уже есть", "в IP/CREATION_RECORD.md")
+        return 0
     if len(args) == 1 and not args[0].startswith("-"):
         out = write_release(build_manifest(args[0]))
         print(f"Записано: {out.relative_to(ROOT)}/SOURCE_MANIFEST.json, SHA256SUMS.txt")
