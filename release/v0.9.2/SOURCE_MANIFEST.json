@@ -8,7 +8,7 @@
   "license": "Apache-2.0",
   "git_commit": "f9c135d93ee499ad5a3ce086ce1a406e4f3c4c41",
   "commit_date": "2026-09-25T08:52:33+03:00",
-  "tag": null,
+  "tag": "v0.9.2",
   "hash_algorithm": "SHA-256",
   "line_endings": "LF-normalized",
   "source_sha256": "6a45980fb75ea84ab3cc6c535060bb52eb6af451e8edaef1c32e736323e5adca",
