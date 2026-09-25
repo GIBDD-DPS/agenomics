@@ -1,9 +1,9 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 test_reports_docx.py — тесты trust_report_docx() методологии Agenomics.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.4.3
 
 Требует python-docx. Если пакет не установлен, тесты в этом файле
 пропускаются (не падают) — это ожидаемо для окружений, где не нужен

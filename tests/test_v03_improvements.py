@@ -1,10 +1,10 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 test_v03_improvements.py — тесты 4 улучшений методологии v0.3:
 настраиваемые веса, роли в Compatibility, множественный domain, confidence.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.3.0
 """
 
 from agenomics import (

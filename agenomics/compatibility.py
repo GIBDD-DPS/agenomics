@@ -1,9 +1,9 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 compatibility.py — Compatibility Scorer методологии Agenomics.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.4.3
 
 Отвечает на вопрос: сработается ли команда из нескольких ИИ-агентов?
 Использует те же геномы (AgentGenome), что и TrustScorer, плюс два

@@ -1,9 +1,9 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 scenarios.py — синтетические сценарии для Agenomics Benchmark Suite.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.6.0
 
 Все сценарии здесь — синтетические, с заранее известным "правильным"
 порядком/ответом, сконструированным человеком, а не собранным из

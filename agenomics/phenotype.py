@@ -1,9 +1,9 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 phenotype.py — Genome Schema и Phenotype (AGENOMICS SPECIFICATION v1.0).
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.5.0
 
 Формализует два понятия спецификации, которых не было явно в v0.1-0.4:
 

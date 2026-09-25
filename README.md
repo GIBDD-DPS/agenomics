@@ -8,10 +8,10 @@ Genetics for AI Agents. Predictability and compatibility scoring for autonomous 
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Status](https://img.shields.io/badge/status-v0.9.2-orange.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-v0.9.3-orange.svg)](CHANGELOG.md)
 [![PyPI](https://img.shields.io/badge/PyPI-agenomics-blue.svg)](https://pypi.org/project/agenomics/)
 
-> **Автор**: Dm.Andreyanov **Версия**: 0.9.2 **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
+> **Автор**: Dm.Andreyanov **Версия**: 0.9.3 **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
 >
 > 📐 Формальная спецификация конвейера (Genome → Genome Schema → Phenotype
 > → Trust Model → Compatibility Model → Drift Model → Observed Behaviour
@@ -761,6 +761,14 @@ Python. `requirements.txt` нужен для запуска этого репо�
 Marketplace/плагины, автоматическое «размножение» агентов, распределённый evidence-кластер, SaaS-биллинг, enterprise SSO. Это расползание scope: не трогаем, пока не закрыт барьер с реальными данными.
 
 Полная история изменений: [`CHANGELOG.md`](CHANGELOG.md).
+
+## Авторство и происхождение
+
+**Agenomics** · автор Dm.Andreyanov · бренд Prizolov Lab · © 2026 · лицензия Apache-2.0.
+
+- [`NOTICE`](NOTICE): уведомление об авторстве, которое по лицензии обязано сохраняться при распространении
+- [`IP/`](IP/): авторское право, автор, название и бренд, сторонние лицензии, история создания, порядок выпуска версии, реестр компонентов
+- [`release/`](release/): манифест каждой версии с SHA-256 файлов по коммиту Git (`scripts/release_manifest.py`)
 
 ## Тесты и CI
 

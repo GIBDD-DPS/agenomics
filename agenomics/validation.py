@@ -1,9 +1,9 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 validation.py. Validation Engine методологии Agenomics.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.9.2
 
 Отвечает на один вопрос: предсказывает ли Trust Score, замороженный до
 выполнения задачи, то, что произошло после. Работает только на парах

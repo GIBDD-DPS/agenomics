@@ -1,9 +1,9 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 test_compat_ground_truth_v2.py — тесты расширенного Compatibility ground truth (v0.6.0).
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.6.0
 """
 
 from agenomics import CompatibilityScorer

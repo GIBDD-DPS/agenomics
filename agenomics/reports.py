@@ -1,9 +1,9 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 reports.py — форматированные отчёты методологии Agenomics (Markdown и DOCX).
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.4.3
 
 Оборачивает TrustResult/TeamCompatibilityResult в готовые к показу
 клиенту отчёты: trust_report()/compatibility_report() — Markdown (без

@@ -1,0 +1,268 @@
+{
+  "product": "Agenomics",
+  "author": "Dm.Andreyanov",
+  "brand": "Prizolov Lab",
+  "copyright_year": 2026,
+  "copyright": "© 2026 Dm.Andreyanov / Prizolov Lab",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/GIBDD-DPS/agenomics",
+  "package": "https://pypi.org/project/agenomics/",
+  "first_commit": {
+    "commit": "615f6ed",
+    "date": "2026-08-31"
+  },
+  "hash_algorithm": "SHA-256",
+  "components": [
+    {
+      "id": "trust-model",
+      "name": "Trust Model (Trust Score, Impact Tier, потолок автономности)",
+      "type": "source_code",
+      "paths": [
+        "agenomics/trust_score.py"
+      ],
+      "since": "0.1.0"
+    },
+    {
+      "id": "trust-auditor-prompt",
+      "name": "Промпт Trust Auditor",
+      "type": "prompt",
+      "paths": [
+        "prompts/trust_auditor_v0.2.md"
+      ],
+      "since": "0.1.0"
+    },
+    {
+      "id": "compatibility-model",
+      "name": "Compatibility Model",
+      "type": "source_code",
+      "paths": [
+        "agenomics/compatibility.py"
+      ],
+      "since": "0.2.0"
+    },
+    {
+      "id": "web-api",
+      "name": "Веб-API",
+      "type": "source_code",
+      "paths": [
+        "agenomics/api.py"
+      ],
+      "since": "0.2.0"
+    },
+    {
+      "id": "drift-monitor",
+      "name": "Drift Monitor (v1, v2, по осям)",
+      "type": "source_code",
+      "paths": [
+        "agenomics/drift.py",
+        "agenomics/per_axis_drift.py"
+      ],
+      "since": "0.4.0"
+    },
+    {
+      "id": "incident-feedback",
+      "name": "Incident Feedback Loop",
+      "type": "source_code",
+      "paths": [
+        "agenomics/feedback.py"
+      ],
+      "since": "0.4.0"
+    },
+    {
+      "id": "genome-ledger",
+      "name": "Genome Ledger",
+      "type": "source_code",
+      "paths": [
+        "agenomics/ledger.py"
+      ],
+      "since": "0.4.0"
+    },
+    {
+      "id": "genome-matchmaker",
+      "name": "Genome Matchmaker",
+      "type": "source_code",
+      "paths": [
+        "agenomics/matchmaker.py"
+      ],
+      "since": "0.4.0"
+    },
+    {
+      "id": "chain-risk",
+      "name": "Chain Risk Aggregator",
+      "type": "source_code",
+      "paths": [
+        "agenomics/chain.py"
+      ],
+      "since": "0.4.0"
+    },
+    {
+      "id": "prompt-to-genome",
+      "name": "Prompt-to-Genome Extractor",
+      "type": "source_code",
+      "paths": [
+        "agenomics/extractor.py"
+      ],
+      "since": "0.4.0"
+    },
+    {
+      "id": "reports",
+      "name": "Отчёты (Markdown, Word)",
+      "type": "source_code",
+      "paths": [
+        "agenomics/reports.py"
+      ],
+      "since": "0.4.0"
+    },
+    {
+      "id": "phenotype",
+      "name": "Genome Schema и Phenotype",
+      "type": "source_code",
+      "paths": [
+        "agenomics/phenotype.py"
+      ],
+      "since": "0.5.0"
+    },
+    {
+      "id": "specification",
+      "name": "AGENOMICS SPECIFICATION",
+      "type": "methodology",
+      "paths": [
+        "docs/SPECIFICATION.md"
+      ],
+      "since": "0.5.0"
+    },
+    {
+      "id": "benchmark",
+      "name": "Synthetic Benchmark Suite",
+      "type": "source_code",
+      "paths": [
+        "benchmark/"
+      ],
+      "since": "0.5.0"
+    },
+    {
+      "id": "real-world-evaluation",
+      "name": "Real-World Evaluation Layer",
+      "type": "source_code",
+      "paths": [
+        "agenomics/evaluation.py"
+      ],
+      "since": "0.6.0"
+    },
+    {
+      "id": "evidence-store",
+      "name": "Evidence Store",
+      "type": "source_code",
+      "paths": [
+        "agenomics/evidence.py"
+      ],
+      "since": "0.7.0"
+    },
+    {
+      "id": "connect-guide",
+      "name": "Руководство по подключению агентов",
+      "type": "documentation",
+      "paths": [
+        "docs/CONNECT_YOUR_AGENTS.md"
+      ],
+      "since": "0.7.0"
+    },
+    {
+      "id": "aep-001",
+      "name": "Agenomics Evidence Protocol (AEP-001)",
+      "type": "methodology",
+      "paths": [
+        "docs/AEP-001.md"
+      ],
+      "since": "0.7.1"
+    },
+    {
+      "id": "heatmap",
+      "name": "Team Compatibility Heatmap",
+      "type": "source_code",
+      "paths": [
+        "agenomics/heatmap.py"
+      ],
+      "since": "0.7.1"
+    },
+    {
+      "id": "bridge-interface",
+      "name": "Интерфейс-контракт внешних интеграций",
+      "type": "documentation",
+      "paths": [
+        "docs/PRIZOLOV_BRIDGE_INTERFACE.md"
+      ],
+      "since": "0.7.1"
+    },
+    {
+      "id": "framework-evaluation",
+      "name": "Framework Evaluation (19 шаблонов, пайплайн, раннер)",
+      "type": "source_code",
+      "paths": [
+        "examples/framework_evaluation/"
+      ],
+      "since": "0.7.2"
+    },
+    {
+      "id": "evidence-store-hook",
+      "name": "EvidenceStoreHook",
+      "type": "source_code",
+      "paths": [
+        "agenomics/hooks.py"
+      ],
+      "since": "0.7.4"
+    },
+    {
+      "id": "cli",
+      "name": "Командный интерфейс",
+      "type": "source_code",
+      "paths": [
+        "agenomics/cli.py"
+      ],
+      "since": "0.7.10"
+    },
+    {
+      "id": "adversarial-suite",
+      "name": "Adversarial Evaluation Suite",
+      "type": "source_code",
+      "paths": [
+        "agenomics/adversarial.py"
+      ],
+      "since": "0.8.0"
+    },
+    {
+      "id": "evidence-graph",
+      "name": "Evidence Graph (доноры, доказательства, предсказания, исходы)",
+      "type": "source_code",
+      "paths": [
+        "agenomics/evidence_graph.py"
+      ],
+      "since": "0.9.0"
+    },
+    {
+      "id": "validation-engine",
+      "name": "Validation Engine",
+      "type": "source_code",
+      "paths": [
+        "agenomics/validation.py"
+      ],
+      "since": "0.9.1"
+    },
+    {
+      "id": "methodology",
+      "name": "Методология Agenomics",
+      "type": "methodology",
+      "paths": [
+        "docs/METHODOLOGY.md"
+      ]
+    },
+    {
+      "id": "test-suite",
+      "name": "Набор тестов",
+      "type": "tests",
+      "paths": [
+        "tests/"
+      ]
+    }
+  ]
+}

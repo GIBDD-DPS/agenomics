@@ -1,10 +1,10 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 test_sensitivity.py — тесты Evidence Quality (v0.6.1): Weight Sensitivity,
 Threshold Sensitivity, Bootstrap CI.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.6.1
 """
 
 from benchmark.sensitivity import (

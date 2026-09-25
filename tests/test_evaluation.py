@@ -1,9 +1,9 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 test_evaluation.py. Тесты Real-World Evaluation Layer.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.7.10
 
 Важно: тесты здесь проверяют механику подсчёта (правильно ли считается
 корреляция на контролируемых, заранее сконструированных данных), а не

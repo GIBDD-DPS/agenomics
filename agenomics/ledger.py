@@ -1,9 +1,9 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 ledger.py. Genome Ledger методологии Agenomics.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.8.0
 
 Простой append-only реестр: хэш генома, результат аудита, дата.
 Локальная in-memory реализация, прототип публичного реестра

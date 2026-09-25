@@ -1,3 +1,4 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 Шаблон под Haystack, переведён на Groq (бесплатный провайдер, через
 OpenAI-совместимый эндпоинт api.groq.com). Требует GROQ_API_KEY.

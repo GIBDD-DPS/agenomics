@@ -1,9 +1,9 @@
+# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 test_evidence.py. Тесты Evidence Store.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.7.7
 """
 
 import json
