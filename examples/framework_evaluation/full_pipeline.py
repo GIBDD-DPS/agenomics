@@ -76,9 +76,23 @@ SCANNER_DONOR = dict(
     version=SECRET_SCANNER_VERSION,
 )
 
-# Что предсказывает замороженный Trust Score каждого прогона: будет ли в
-# этом прогоне инцидент. Исходы от доноров уточняют, какой именно.
-PREDICTION_TARGET = "incident_in_run"
+# [v0.9.2] Третий донор: проверка ответа агента для шаблонов, у задачи
+# которых есть однозначный правильный ответ (функция check() в шаблоне).
+# Детерминированная проверка реального исхода задачи, поэтому Q3
+# ("подтверждённый автоматический исход"), выше runtime (Q1) и сканера (Q2).
+TASK_CHECKER_DONOR = dict(
+    donor_id="framework_eval.task_checker", donor_type="outcome",
+    name="framework_evaluation deterministic answer check", independence_group="task_checker",
+)
+
+# [v0.9.2] Что предсказывает замороженный Trust Score. До v0.9.2 была одна
+# цель incident_in_run, в которой смешивались отказ выполнения, утечка и
+# (в task_outcome) результат задачи. Теперь у каждого прогона отдельное
+# предсказание на каждую цель, и Validation Engine проверяет их порознь:
+# один и тот же score может предсказывать утечки и не предсказывать отказы.
+TARGET_RUNTIME = "runtime_failure"      # исход execution_error от runtime-монитора
+TARGET_SECURITY = "security_incident"   # исход secret_leak от сканера
+TARGET_TASK = "task_failure"            # исход task_failure от task_checker, только если есть check()
 PREDICTION_HORIZON = "current_run"
 
 # Где в результатах разных фреймворков обычно лежит идентификатор модели,
@@ -238,6 +252,7 @@ def run_framework_and_record(
     model_version: Optional[str] = None,
     prompt_version: Optional[str] = None,
     framework_package: Optional[str] = None,
+    check_fn: Optional[Callable] = None,
 ) -> dict:
     """Один вызов делает всё: строит геном из истории прошлых прогонов и
     считает по нему TrustScorer.score() ДО запуска, затем запускает
@@ -251,7 +266,12 @@ def run_framework_and_record(
     leaked_secrets, error_class, framework_version, observed_model_version,
     model_match (True/False, None если модель в ответе не найдена),
     runtime_reliability (доля успешных прогонов, включая этот),
-    observation_id, prediction_id."""
+    task_check (True/False, None если проверки нет или она не выполнилась),
+    observation_id, prediction_ids ({target: id}).
+
+    check_fn(result) -> bool: проверка итогового ответа агента для задач
+    с однозначным правильным ответом. Без неё предсказание task_failure
+    не создаётся, а task_outcome остаётся неизвестным при успешном прогоне."""
     import io, contextlib, logging, time
     from datetime import timezone
     from agenomics import Incident, IncidentCategory, IncidentSeverity, IncidentSource
@@ -298,9 +318,14 @@ def run_framework_and_record(
     )
     store.register_donor(**RUNTIME_DONOR)
     store.register_donor(**SCANNER_DONOR)
-    prediction_id = store.record_prediction(
-        obs_id, target=PREDICTION_TARGET, horizon=PREDICTION_HORIZON, frozen_at=scored_at,
-    )
+    targets = [TARGET_RUNTIME, TARGET_SECURITY]
+    if check_fn is not None:
+        store.register_donor(**TASK_CHECKER_DONOR)
+        targets.append(TARGET_TASK)
+    prediction_ids = {
+        target: store.record_prediction(obs_id, target=target, horizon=PREDICTION_HORIZON, frozen_at=scored_at)
+        for target in targets
+    }
 
     loggers = loggers or [""]
     stream = io.StringIO()
@@ -366,13 +391,36 @@ def run_framework_and_record(
     model_match = _model_matches(model_version, observed_model_version)
     is_infrastructure = error_class in _INFRASTRUCTURE_ERROR_CLASSES
 
-    store.record_execution(obs_id, status, duration, observed_model_version=observed_model_version)
-    store.record_task_outcome(
-        obs_id, "success" if status == "success" and not leaked_secret_types else "failure", incidents,
-    )
+    # Проверка ответа. Ошибка самой проверки (неожиданная форма результата)
+    # это "исход неизвестен", а не провал задачи: иначе баг проверки
+    # выглядел бы как плохое поведение агента.
+    task_check = None
+    task_check_error = None
+    if check_fn is not None and status == "success":
+        try:
+            task_check = bool(check_fn(run_result))
+        except Exception as exc:
+            task_check_error = f"{type(exc).__name__}: {exc}"[:150]
 
-    # Доказательства и исходы от каждого донора отдельно: runtime-монитор
-    # и сканер не подтверждают друг друга, они смотрят на разное.
+    # task_outcome (v0.9.2) описывает только задачу: упал прогон, значит
+    # задача не выполнена; есть проверка, значит её результат; иначе
+    # неизвестно. Утечка секрета это отдельный исход (security_incident),
+    # а не провал задачи, как было до v0.9.2.
+    if status == "error":
+        task_outcome = "failure"
+    elif task_check is not None:
+        task_outcome = "success" if task_check else "failure"
+    else:
+        task_outcome = None
+
+    store.record_execution(obs_id, status, duration, observed_model_version=observed_model_version)
+    if task_outcome is not None:
+        store.record_task_outcome(obs_id, task_outcome, incidents)
+    elif incidents:
+        store.add_incidents(obs_id, incidents)
+
+    # Доказательства и исходы от каждого донора отдельно: доноры не
+    # подтверждают друг друга, они смотрят на разное.
     reference = f"framework_eval:{framework}:{scored_at.isoformat()}"
     store.record_evidence(
         obs_id, RUNTIME_DONOR["donor_id"], "execution",
@@ -383,14 +431,32 @@ def run_framework_and_record(
         "leak:" + ",".join(leaked_secret_types) if leaked_secret_types else "clean", "Q2",
         source_reference=reference,
     )
-    store.record_outcome(
-        prediction_id, RUNTIME_DONOR["donor_id"],
-        "infrastructure_error" if is_infrastructure else "execution_error",
-        occurred=status == "error",
-    )
-    store.record_outcome(
-        prediction_id, SCANNER_DONOR["donor_id"], "secret_leak", occurred=bool(leaked_secret_types),
-    )
+    if check_fn is not None:
+        if status == "error":
+            finding = "not_run"
+        elif task_check_error:
+            finding = f"check_error:{task_check_error}"
+        else:
+            finding = "pass" if task_check else "fail"
+        store.record_evidence(
+            obs_id, TASK_CHECKER_DONOR["donor_id"], "task_check", finding, "Q3", source_reference=reference,
+        )
+
+    for target, prediction_id in prediction_ids.items():
+        # Прогон, упавший из-за окружения, помечается у КАЖДОЙ цели: агент
+        # не работал, и Validation Engine должен исключить все его
+        # предсказания, а не только runtime (иначе "утечки не было" в
+        # непрогнанном агенте выглядело бы как подтверждение безопасности).
+        if is_infrastructure:
+            store.record_outcome(prediction_id, RUNTIME_DONOR["donor_id"], "infrastructure_error", occurred=True)
+            continue
+        if target == TARGET_RUNTIME:
+            store.record_outcome(prediction_id, RUNTIME_DONOR["donor_id"], "execution_error", occurred=status == "error")
+        elif target == TARGET_SECURITY:
+            store.record_outcome(prediction_id, SCANNER_DONOR["donor_id"], "secret_leak", occurred=bool(leaked_secret_types))
+        elif target == TARGET_TASK and task_outcome is not None:
+            store.record_outcome(prediction_id, TASK_CHECKER_DONOR["donor_id"], "task_failure",
+                                 occurred=task_outcome == "failure")
 
     runs_total = len(past_leaks) + 1
     runtime_reliability = round(
@@ -415,6 +481,7 @@ def run_framework_and_record(
         "observed_model_version": observed_model_version,
         "model_match": model_match,
         "runtime_reliability": runtime_reliability,
+        "task_check": task_check,
         "observation_id": obs_id,
-        "prediction_id": prediction_id,
+        "prediction_ids": prediction_ids,
     }

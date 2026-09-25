@@ -6,7 +6,7 @@ Agenomics. Genetics for AI Agents.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.9.1
+Версия: 0.9.2
 
 Формальная спецификация уровней конвейера (Genome → Genome Schema →
 Phenotype → Trust Model → Compatibility Model → Drift Model →
@@ -46,7 +46,8 @@ from .evidence_graph import (
 )
 from .hooks import EvidenceStoreHook
 from .validation import (
-    validate, build_pairs, validation_report_text, ValidationReport, ValidationPair, VERDICTS,
+    validate, validate_all_targets, prediction_targets, build_pairs, validation_report_text,
+    ValidationReport, ValidationPair, VERDICTS,
 )
 from .adversarial import (
     AdversarialSuite, AdversarialReport, AxisEstimate, ProbeResult, adversarial_report_text,
@@ -74,10 +75,10 @@ __all__ = [
     "EvidenceStore", "StoredObservation", "replay_into_evaluation_layer", "AEP_SCHEMA_VERSION",
     "Donor", "StoredEvidence", "StoredPrediction", "StoredOutcome", "EvidenceProfile",
     "DONOR_TYPES", "QUALITY_LEVELS", "VERIFICATION_METHODS",
-    "validate", "build_pairs", "validation_report_text", "ValidationReport", "ValidationPair", "VERDICTS",
+    "validate", "validate_all_targets", "prediction_targets", "build_pairs", "validation_report_text", "ValidationReport", "ValidationPair", "VERDICTS",
     "AdversarialSuite", "AdversarialReport", "AxisEstimate", "ProbeResult", "adversarial_report_text",
     "EvidenceStoreHook",
     "trust_report", "compatibility_report", "trust_report_docx",
 ]
 
-__version__ = "0.9.1"
+__version__ = "0.9.2"

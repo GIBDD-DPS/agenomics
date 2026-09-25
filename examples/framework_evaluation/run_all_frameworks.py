@@ -107,6 +107,7 @@ def discover_frameworks() -> dict:
             "prompt_version": getattr(module, "PROMPT_VERSION", None),
             "framework_package": getattr(module, "FRAMEWORK_PACKAGE", None),
             "ci_tier": getattr(module, "CI_TIER", "experimental"),
+            "check": getattr(module, "check", None),
         }
         if discovered[name]["ci_tier"] not in CI_TIERS:
             print(f"[WARN] {py_file.name}: CI_TIER={discovered[name]['ci_tier']!r} "
@@ -132,6 +133,7 @@ def main():
             domain=config["domain"], autonomy=config["autonomy"],
             model_version=config["model_version"], prompt_version=config["prompt_version"],
             framework_package=config["framework_package"],
+            check_fn=config["check"],
             print_report=False,
         )
         summary["ci_tier"] = config["ci_tier"]
@@ -139,10 +141,11 @@ def main():
         results.append(summary)
         marker = "✅" if summary["status"] == "success" else "❌"
         leak_marker = " ⚠️ УТЕЧКА" if summary["leaked_secrets"] else ""
+        task_marker = {True: " задача✅", False: " задача❌", None: ""}[summary["task_check"]]
         # Trust Score и надёжность запуска разные величины (v0.9.0): score не
         # учитывает падения из-за окружения, надёжность учитывает всё.
         print(f"{marker} {name:20s} score={summary['score']:.1f} ({summary['label']}) "
-              f"reliability={summary['runtime_reliability']:.0%}{leak_marker}")
+              f"reliability={summary['runtime_reliability']:.0%}{task_marker}{leak_marker}")
 
     store.close()
 

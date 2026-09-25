@@ -8,10 +8,10 @@ Genetics for AI Agents. Predictability and compatibility scoring for autonomous 
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Status](https://img.shields.io/badge/status-v0.9.1-orange.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-v0.9.2-orange.svg)](CHANGELOG.md)
 [![PyPI](https://img.shields.io/badge/PyPI-agenomics-blue.svg)](https://pypi.org/project/agenomics/)
 
-> **Автор**: Dm.Andreyanov **Версия**: 0.9.1 **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
+> **Автор**: Dm.Andreyanov **Версия**: 0.9.2 **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
 >
 > 📐 Формальная спецификация конвейера (Genome → Genome Schema → Phenotype
 > → Trust Model → Compatibility Model → Drift Model → Observed Behaviour
@@ -325,8 +325,8 @@ agenomics evidence list agenomics_evidence.db --agent-id support-bot
 ### Validation Engine (v0.9.1). Предсказывает ли Trust Score хоть что-нибудь
 
 ```bash
-agenomics validate agenomics_evidence.db                            # все исходы, без infrastructure_error
-agenomics validate agenomics_evidence.db --outcome-type secret_leak --json
+agenomics validate agenomics_evidence.db                            # отчёт по каждой цели отдельно
+agenomics validate agenomics_evidence.db --target security_incident --json
 ```
 
 Работает только на парах Prediction → Outcome из Evidence Graph, где
@@ -716,7 +716,16 @@ Python. `requirements.txt` нужен для запуска этого репо�
 - [x] Уровни наблюдения и агента (Spearman), число конфигураций; фильтры по `outcome_type`, `independence_group`, `verification`, `target`; предсказания с `infrastructure_error` исключаются целиком
 - [x] Отчёт в каждом прогоне Framework Evaluation (информационный, CI не валит)
 
+### v0.9.2: Outcome hardening (выполнено)
+
+- [x] Отдельные цели предсказаний (`runtime_failure`, `security_incident`, `task_failure`) вместо общего `incident_in_run`; Validation Engine проверяет каждую отдельно и отказывается смешивать цели
+- [x] Донор `task_checker` (Q3): детерминированная проверка ответа агента в 4 шаблонах с однозначным ответом
+- [x] В отчёте Validation Engine доноры, группы независимости, подтверждённые пары; исходы раньше заморозки отбрасываются повторно
+- [x] CI: ключ кэша с `run_attempt` (ручной Re-run терял историю), `ubuntu-24.04`, actions на Node 24
+
 ### v0.9.x: дальше
+
+- [ ] Задачи с проверяемым ответом для остальных 15 шаблонов (сейчас открытые вопросы «Что такое X?», исход задачи у них неизвестен)
 
 - [ ] Фильтр по `quality_level`: у исходов его нет, он есть у доказательств; нужно решить, как связывать
 - [ ] Статистика на уровне конфигурации (`genome_hash`) как отдельный уровень, а не только счётчик

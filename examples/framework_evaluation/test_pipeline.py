@@ -551,21 +551,30 @@ def test_legacy_infrastructure_failures_recognised_by_description():
     store.close()
 
 
-def test_run_writes_prediction_evidence_and_outcomes_from_two_donors():
+def _predictions_by_target(store, framework="fw"):
+    return {p.target: p for p in store.get_predictions(framework)}
+
+
+def test_run_writes_separate_predictions_per_target():
+    """v0.9.2: вместо одного incident_in_run отдельное предсказание на
+    каждую цель, у каждого свой исход от своего донора."""
     from datetime import datetime
     store = EvidenceStore(":memory:")
     summary = _run(store, run_fn=lambda: print("token: Bearer abcdefghijklmnopqrstuvwxyz1234567890"))
 
-    prediction = store.get_predictions("fw")[0]
-    assert prediction.id == summary["prediction_id"]
-    assert prediction.trust_score == summary["score"]
-    assert prediction.target == "incident_in_run"
-    outcomes = {o.outcome_type: o for o in prediction.outcomes}
-    assert outcomes["execution_error"].occurred is False
-    assert outcomes["secret_leak"].occurred is True
-    assert {o.independence_group for o in prediction.outcomes} == {"runtime", "regex_secret_scanner"}
-    for o in prediction.outcomes:
-        assert datetime.fromisoformat(o.observed_at) >= datetime.fromisoformat(prediction.frozen_at)
+    predictions = _predictions_by_target(store)
+    assert set(predictions) == {"runtime_failure", "security_incident"}  # без check() нет task_failure
+    assert summary["prediction_ids"] == {t: p.id for t, p in predictions.items()}
+    assert all(p.trust_score == summary["score"] for p in predictions.values())
+
+    runtime = predictions["runtime_failure"].outcomes
+    security = predictions["security_incident"].outcomes
+    assert [(o.outcome_type, o.occurred, o.independence_group) for o in runtime] == [("execution_error", False, "runtime")]
+    assert [(o.outcome_type, o.occurred, o.independence_group) for o in security] == [
+        ("secret_leak", True, "regex_secret_scanner")]
+    for p in predictions.values():
+        for o in p.outcomes:
+            assert datetime.fromisoformat(o.observed_at) >= datetime.fromisoformat(p.frozen_at)
 
     evidence = {e.evidence_type: e for e in store.get_evidence(observation_id=summary["observation_id"])}
     assert evidence["execution"].finding == "success" and evidence["execution"].quality_level == "Q1"
@@ -573,21 +582,90 @@ def test_run_writes_prediction_evidence_and_outcomes_from_two_donors():
 
     obs = store.get_observations("fw")[0]
     assert obs.execution_status == "success"
-    assert obs.task_outcome == "failure"  # утечка это провал задачи, даже без исключения
+    # утечка это security_incident, а не провал задачи; без check() исход задачи неизвестен
+    assert obs.task_outcome is None
+    assert any(inc["category"] == "data_leak" for inc in obs.incidents)
 
     profile = store.evidence_profile("fw")
     assert profile.n_donors == 2 and profile.n_independence_groups == 2
-    assert profile.n_predictions_with_outcome == 1
+    assert profile.n_predictions_with_outcome == 2
     store.close()
 
 
-def test_infrastructure_error_outcome_is_labelled_as_such():
+def test_infrastructure_failure_marks_every_target():
+    """Агент не работал: все его предсказания должны получить
+    infrastructure_error, чтобы Validation Engine исключил их все, а не
+    засчитал "утечки не было" непрогнанному агенту."""
     store = EvidenceStore(":memory:")
-    _run(store, run_fn=_raise(ModuleNotFoundError("No module named 'x'")))
-    outcome_types = {o.outcome_type: o.occurred for o in store.get_predictions("fw")[0].outcomes}
-    assert outcome_types == {"infrastructure_error": True, "secret_leak": False}
-    assert store.get_evidence()[0].finding == "error:import_error"
+    _run(store, run_fn=_raise(ModuleNotFoundError("No module named 'x'")), check_fn=lambda r: True)
+    predictions = _predictions_by_target(store)
+    assert set(predictions) == {"runtime_failure", "security_incident", "task_failure"}
+    for p in predictions.values():
+        assert [(o.outcome_type, o.occurred) for o in p.outcomes] == [("infrastructure_error", True)]
+    evidence = {e.evidence_type: e.finding for e in store.get_evidence()}
+    assert evidence == {"execution": "error:import_error", "secret_scan": "clean", "task_check": "not_run"}
     store.close()
+
+
+def test_task_check_pass_and_fail():
+    store = EvidenceStore(":memory:")
+    ok = _run(store, "good", run_fn=lambda: 55, check_fn=lambda r: r == 55)
+    bad = _run(store, "bad", run_fn=lambda: 54, check_fn=lambda r: r == 55)
+    assert ok["task_check"] is True and bad["task_check"] is False
+    for fw, occurred, outcome, finding in (("good", False, "success", "pass"), ("bad", True, "failure", "fail")):
+        task = _predictions_by_target(store, fw)["task_failure"]
+        assert [(o.outcome_type, o.occurred, o.independence_group) for o in task.outcomes] == [
+            ("task_failure", occurred, "task_checker")]
+        assert store.get_observations(fw)[0].task_outcome == outcome
+        check_evidence = [e for e in store.get_evidence(agent_id=fw) if e.evidence_type == "task_check"][0]
+        assert check_evidence.finding == finding and check_evidence.quality_level == "Q3"
+    store.close()
+
+
+def test_agent_crash_is_task_failure_when_checkable():
+    store = EvidenceStore(":memory:")
+    _run(store, run_fn=_raise(ValueError("agent bug")), check_fn=lambda r: True)
+    task = _predictions_by_target(store)["task_failure"]
+    assert [(o.outcome_type, o.occurred) for o in task.outcomes] == [("task_failure", True)]
+    assert store.get_observations("fw")[0].task_outcome == "failure"
+    store.close()
+
+
+def test_broken_check_is_unknown_not_failure():
+    """Баг в проверке не должен выглядеть как плохое поведение агента."""
+    store = EvidenceStore(":memory:")
+
+    def broken_check(result):
+        raise KeyError("messages")
+
+    summary = _run(store, run_fn=lambda: "answer", check_fn=broken_check)
+    assert summary["task_check"] is None
+    assert _predictions_by_target(store)["task_failure"].outcomes == []
+    assert store.get_observations("fw")[0].task_outcome is None
+    finding = [e.finding for e in store.get_evidence() if e.evidence_type == "task_check"][0]
+    assert finding.startswith("check_error:KeyError")
+    store.close()
+
+
+def test_templates_with_check_are_the_four_deterministic_ones():
+    from run_all_frameworks import discover_frameworks
+    with_check = sorted(n for n, cfg in discover_frameworks().items() if cfg["check"] is not None)
+    assert with_check == ["dspy_bot", "langchain_bot", "llamaindex_bot", "smolagents_bot"]
+
+
+def test_template_checks_read_final_answer_not_tool_output():
+    """LangChain: вывод инструмента "It's always sunny" лежит в истории
+    сообщений; проверка по всему результату прошла бы при любом ответе."""
+    from types import SimpleNamespace as M
+    from run_all_frameworks import discover_frameworks
+    checks = {n: cfg["check"] for n, cfg in discover_frameworks().items() if cfg["check"]}
+    tool_then_wrong = {"messages": [M(content="q"), M(content="It's always sunny in SF!"), M(content="Не знаю.")]}
+    tool_then_right = {"messages": [M(content="q"), M(content="It's always sunny in SF!"), M(content="Солнечно.")]}
+    assert checks["langchain_bot"](tool_then_wrong) is False
+    assert checks["langchain_bot"](tool_then_right) is True
+    assert checks["smolagents_bot"](55) and not checks["smolagents_bot"]("155")
+    assert checks["dspy_bot"](M(answer="22°C")) and not checks["dspy_bot"](M(answer="122"))
+    assert checks["llamaindex_bot"](M(response=M(content="до 15°C"))) and not checks["llamaindex_bot"](M(response=None))
 
 
 def test_interrupted_run_leaves_prediction_without_outcome():

@@ -31,3 +31,10 @@ def run():
     result = agent.run("Посчитай сумму чисел от 1 до 10")
     print(result)
     return result
+
+
+def check(result) -> bool:
+    """Задача детерминированная: сумма чисел от 1 до 10 равна 55. Пишется
+    в EvidenceStore донором task_checker как исход task_failure."""
+    import re
+    return re.search(r"(?<!\d)55(?!\d)", str(result)) is not None
