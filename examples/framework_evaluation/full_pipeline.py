@@ -1,4 +1,4 @@
-# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 full_pipeline.py. Склеивает захват лога, построение генома, TrustScorer
 и запись в EvidenceStore в один вызов.

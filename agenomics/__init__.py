@@ -1,4 +1,4 @@
-# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 Agenomics. Genetics for AI Agents.
 
@@ -81,4 +81,4 @@ __all__ = [
     "trust_report", "compatibility_report", "trust_report_docx",
 ]
 
-__version__ = "0.9.3"
+__version__ = "0.9.4"
