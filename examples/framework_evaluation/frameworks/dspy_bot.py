@@ -28,3 +28,11 @@ def run():
     result = agent(question="Какая погода в Париже?")
     print(result.answer)
     return result
+
+
+def check(result) -> bool:
+    """Инструмент get_weather возвращает "sunny and 22C": правильный ответ
+    обязан содержать 22. Проверяется итоговый ответ (result.answer), а не
+    весь результат, где есть и вывод инструмента."""
+    import re
+    return re.search(r"(?<!\d)22(?!\d)", str(getattr(result, "answer", ""))) is not None

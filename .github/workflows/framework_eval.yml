@@ -7,15 +7,18 @@ on:
 
 jobs:
   evaluate:
-    runs-on: ubuntu-latest
+    # Закреплённый образ, а не ubuntu-latest: смена образа GitHub
+    # (ubuntu-latest переходит на 26 с 19.10.2026) не должна незаметно
+    # менять условия эксперимента.
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: examples/framework_evaluation
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
@@ -58,10 +61,10 @@ jobs:
       # Без if: always() на save история прогонов терялась бы ровно в
       # тех запусках, где что-то сломалось.
       - name: Restore evidence database from previous run
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: examples/framework_evaluation/frameworks_evidence.db
-          key: frameworks-evidence-db-${{ github.run_id }}
+          key: frameworks-evidence-db-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             frameworks-evidence-db-
 
@@ -81,21 +84,24 @@ jobs:
       - name: Validation report
         if: always()
         continue-on-error: true
-        run: |
-          agenomics validate frameworks_evidence.db
-          agenomics validate frameworks_evidence.db --outcome-type secret_leak
+        run: agenomics validate frameworks_evidence.db
 
+      # run_attempt в ключе: при ручном Re-run run_id тот же, ключ первой
+      # попытки уже занят, и сохранение второй падало с "Unable to reserve
+      # cache" (прогон 36091548267, attempt 2). Следующий прогон тогда
+      # восстанавливал базу первой попытки, и наблюдения второй терялись
+      # из истории. restore-keys по префиксу по-прежнему берёт самый новый.
       - name: Save evidence database for the next run
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: examples/framework_evaluation/frameworks_evidence.db
-          key: frameworks-evidence-db-${{ github.run_id }}
+          key: frameworks-evidence-db-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload evidence database as downloadable artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: frameworks-evidence-db-${{ github.run_id }}
+          name: frameworks-evidence-db-${{ github.run_id }}-${{ github.run_attempt }}
           path: examples/framework_evaluation/frameworks_evidence.db
           retention-days: 90

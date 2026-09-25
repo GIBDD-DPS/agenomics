@@ -32,3 +32,13 @@ def run():
     result = asyncio.run(_run())
     print(result)
     return result
+
+
+def check(result) -> bool:
+    """Инструмент get_weather возвращает "cloudy with a high of 15C":
+    правильный ответ обязан содержать 15. Проверяется ответ агента
+    (result.response.content), а не вывод инструмента."""
+    import re
+    response = getattr(result, "response", None)
+    text = getattr(response, "content", None) if response is not None else None
+    return re.search(r"(?<!\d)15(?!\d)", str(text or "")) is not None

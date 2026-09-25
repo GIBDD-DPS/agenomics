@@ -11,7 +11,10 @@ EvidenceStore.model_version, чтобы смена модели не выгля�
 Опционально: DOMAIN, AUTONOMY (иначе используются значения по умолчанию),
 PROMPT_VERSION (если версионируете системный промпт),
 FRAMEWORK_PACKAGE (pip-имя библиотеки, иначе framework_version не пишется),
-CI_TIER ("required" или "experimental", по умолчанию "experimental").
+CI_TIER ("required" или "experimental", по умолчанию "experimental"),
+check(result) -> bool (только если у задачи есть однозначный правильный
+ответ: проверяет ИТОГОВЫЙ ответ агента, не вывод инструментов; без
+check() исход задачи записывается как неизвестный, а не как успех).
 """
 
 DOMAIN = "content"      # или "finance"/"support"/"health" и т.д. — см. docs/METHODOLOGY.md

@@ -3,7 +3,7 @@ validation.py. Validation Engine методологии Agenomics.
 
 Автор: Dm.Andreyanov
 Проект: Prizolov Lab
-Версия: 0.9.1
+Версия: 0.9.2
 
 Отвечает на один вопрос: предсказывает ли Trust Score, замороженный до
 выполнения задачи, то, что произошло после. Работает только на парах
@@ -63,6 +63,9 @@ class ValidationPair:
     occurred: bool
     frozen_at: datetime
     genome_hash: Optional[str] = None
+    donor_ids: Tuple[str, ...] = ()           # доноры исходов, вошедших в пару
+    independence_groups: Tuple[str, ...] = ()
+    verified: bool = False                    # хотя бы один исход human/ground_truth
 
     @property
     def risk(self) -> float:
@@ -118,6 +121,15 @@ class ValidationReport:
     evidence_strength: str
     filters: Dict
     overall: Metrics
+    # [v0.9.2] Независимость: сколько доноров и групп независимости дали
+    # исходы, вошедшие в пары, и сколько пар подтверждены человеком или
+    # реальным исходом. n_rejected_outcomes: исходы, наблюдённые раньше
+    # заморозки предсказания, отброшены повторной проверкой.
+    n_donors: int = 0
+    n_independence_groups: int = 0
+    independence_groups: List[str] = field(default_factory=list)
+    n_verified_pairs: int = 0
+    n_rejected_outcomes: int = 0
     calibration: List[CalibrationBin] = field(default_factory=list)
     expected_calibration_error: Optional[float] = None
     agent_level_spearman: Optional[float] = None
@@ -125,6 +137,59 @@ class ValidationReport:
 
 
 # --- Сборка пар ------------------------------------------------------------
+
+def _parse_time(value: str) -> datetime:
+    ts = datetime.fromisoformat(value)
+    return ts if ts.tzinfo is not None else ts.replace(tzinfo=timezone.utc)
+
+
+def _collect_pairs(
+    store,
+    target: Optional[str],
+    outcome_types: Optional[Sequence[str]],
+    exclude_outcome_types: Sequence[str],
+    independence_groups: Optional[Sequence[str]],
+    verification: Optional[Sequence[str]],
+    agent_id: Optional[str],
+) -> Tuple[List[ValidationPair], int]:
+    genome_by_obs = dict(store._conn.execute("SELECT id, genome_hash FROM observations").fetchall())
+    pairs: List[ValidationPair] = []
+    n_rejected = 0
+    for p in store.get_predictions(agent_id):
+        if target is not None and p.target != target:
+            continue
+        frozen = _parse_time(p.frozen_at)
+        # [v0.9.2] Повторная проверка порядка времени. record_outcome() уже
+        # отклоняет исход не позже заморозки, но база могла быть
+        # импортирована или исправлена вручную: проспективная проверка не
+        # должна полагаться на то, что каждая запись прошла через API.
+        outcomes = []
+        for o in p.outcomes:
+            if _parse_time(o.observed_at) < frozen:
+                n_rejected += 1
+            else:
+                outcomes.append(o)
+        if any(o.outcome_type in exclude_outcome_types and o.occurred for o in outcomes):
+            continue
+        matching = [
+            o for o in outcomes
+            if o.outcome_type not in exclude_outcome_types
+            and (outcome_types is None or o.outcome_type in outcome_types)
+            and (independence_groups is None or o.independence_group in independence_groups)
+            and (verification is None or o.verification in verification)
+        ]
+        if not matching:
+            continue
+        pairs.append(ValidationPair(
+            prediction_id=p.id, agent_id=p.agent_id, trust_score=p.trust_score,
+            occurred=any(o.occurred for o in matching), frozen_at=frozen,
+            genome_hash=genome_by_obs.get(p.observation_id),
+            donor_ids=tuple(sorted({o.donor_id for o in matching})),
+            independence_groups=tuple(sorted({o.independence_group for o in matching})),
+            verified=any(o.verification in ("human", "ground_truth") for o in matching),
+        ))
+    return pairs, n_rejected
+
 
 def build_pairs(
     store,
@@ -141,32 +206,16 @@ def build_pairs(
     фильтры исход его подтвердил. Предсказание без подходящих исходов
     пропускается: исход неизвестен, это не "не произошло". Предсказание,
     у которого произошёл исход из exclude_outcome_types, пропускается
-    целиком: прогон не состоялся."""
-    genome_by_obs = dict(store._conn.execute("SELECT id, genome_hash FROM observations").fetchall())
-    pairs = []
-    for p in store.get_predictions(agent_id):
-        if target is not None and p.target != target:
-            continue
-        if any(o.outcome_type in exclude_outcome_types and o.occurred for o in p.outcomes):
-            continue
-        matching = [
-            o for o in p.outcomes
-            if o.outcome_type not in exclude_outcome_types
-            and (outcome_types is None or o.outcome_type in outcome_types)
-            and (independence_groups is None or o.independence_group in independence_groups)
-            and (verification is None or o.verification in verification)
-        ]
-        if not matching:
-            continue
-        frozen = datetime.fromisoformat(p.frozen_at)
-        if frozen.tzinfo is None:
-            frozen = frozen.replace(tzinfo=timezone.utc)
-        pairs.append(ValidationPair(
-            prediction_id=p.id, agent_id=p.agent_id, trust_score=p.trust_score,
-            occurred=any(o.occurred for o in matching), frozen_at=frozen,
-            genome_hash=genome_by_obs.get(p.observation_id),
-        ))
-    return pairs
+    целиком: прогон не состоялся. Исходы, наблюдённые раньше заморозки
+    предсказания, отбрасываются (v0.9.2); равенство допускается, как и в
+    record_outcome() для времени по умолчанию."""
+    return _collect_pairs(store, target, outcome_types, exclude_outcome_types,
+                          independence_groups, verification, agent_id)[0]
+
+
+def prediction_targets(store) -> List[str]:
+    """Все цели предсказаний в базе, по алфавиту."""
+    return [r[0] for r in store._conn.execute("SELECT DISTINCT target FROM predictions ORDER BY target")]
 
 
 # --- Метрики -----------------------------------------------------------------
@@ -433,7 +482,18 @@ def validate(
         "independence_groups": list(independence_groups) if independence_groups else None,
         "verification": list(verification) if verification else None, "agent_id": agent_id,
     }
-    pairs = build_pairs(store, target, outcome_types, exclude_outcome_types, independence_groups, verification, agent_id)
+    if target is None:
+        targets = prediction_targets(store)
+        if len(targets) > 1:
+            # Одна и та же оценка записана под каждую цель: объединение
+            # целей засчитало бы каждый прогон несколько раз.
+            raise ValueError(
+                f"в базе несколько целей предсказаний {targets}: укажите target "
+                f"или используйте validate_all_targets()"
+            )
+    pairs, n_rejected = _collect_pairs(
+        store, target, outcome_types, exclude_outcome_types, independence_groups, verification, agent_id,
+    )
     labels = [p.occurred for p in pairs]
     risks = [p.risk for p in pairs]
     overall = _metrics(risks, labels)
@@ -453,12 +513,23 @@ def validate(
         evidence_strength=_evidence_strength(len(pairs)), filters=filters, overall=overall,
         calibration=calibration, expected_calibration_error=ece,
         agent_level_spearman=None if agent_spearman is None else round(agent_spearman, 4),
+        n_donors=len({d for p in pairs for d in p.donor_ids}),
+        n_independence_groups=len({g for p in pairs for g in p.independence_groups}),
+        independence_groups=sorted({g for p in pairs for g in p.independence_groups}),
+        n_verified_pairs=sum(1 for p in pairs if p.verified),
+        n_rejected_outcomes=n_rejected,
     )
 
     if pairs:
         report.holdout = _holdout(pairs, calibration_fraction, min_agents_for_cluster_bootstrap)
     report.verdict, report.detail = _verdict(report, min_test_pairs, min_class_count, risks)
     return report
+
+
+def validate_all_targets(store, **kwargs) -> Dict[str, "ValidationReport"]:
+    """validate() отдельно для каждой цели предсказаний в базе."""
+    kwargs.pop("target", None)
+    return {target: validate(store, target=target, **kwargs) for target in prediction_targets(store)}
 
 
 def _verdict(report: ValidationReport, min_test_pairs: int, min_class_count: int, risks: Sequence[float]):
@@ -503,11 +574,15 @@ def _verdict(report: ValidationReport, min_test_pairs: int, min_class_count: int
 
 def validation_report_text(report: ValidationReport) -> str:
     o, h = report.overall, report.holdout
+    target = report.filters.get("target")
     lines = [
-        f"Validation Engine: {report.verdict}",
+        f"Validation Engine{f' [{target}]' if target else ''}: {report.verdict}",
         f"  {report.detail}",
         f"  Пары: {report.n_pairs} (с событием {report.n_positive}), агентов {report.n_agents}, "
         f"конфигураций {report.n_configurations}, уровень '{report.evidence_strength}'",
+        f"  Независимость: доноров {report.n_donors}, групп {report.n_independence_groups} "
+        f"{report.independence_groups}, подтверждённых человеком/реальностью пар {report.n_verified_pairs}"
+        + (f", отброшено исходов раньше заморозки: {report.n_rejected_outcomes}" if report.n_rejected_outcomes else ""),
         f"  Вся выборка: ROC-AUC {o.roc_auc}, PR-AUC {o.pr_auc} (base rate {o.base_rate}), "
         f"Brier {o.brier}, ECE {report.expected_calibration_error}",
         f"  Уровень агента: Spearman(средний score, частота событий) = {report.agent_level_spearman}",

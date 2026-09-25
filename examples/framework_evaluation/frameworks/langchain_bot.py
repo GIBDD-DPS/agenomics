@@ -28,3 +28,12 @@ def run():
     )
     print(result["messages"][-1].content)
     return result
+
+
+def check(result) -> bool:
+    """Инструмент get_weather возвращает "It's always sunny": правильный
+    ответ должен сказать, что солнечно. Проверяется только последнее
+    сообщение (ответ модели): в предыдущих лежит вывод самого инструмента,
+    и проверка по всему результату прошла бы при любом ответе."""
+    text = str(getattr(result["messages"][-1], "content", "")).lower()
+    return "sunny" in text or "солн" in text

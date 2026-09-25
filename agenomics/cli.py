@@ -133,25 +133,32 @@ def cmd_validate(args) -> int:
     Engine). Код выхода 0 при любом вердикте: это отчёт, а не проверка
     качества кода, "insufficient_data" на ранних данных нормален."""
     from dataclasses import asdict
-    from .validation import validate, validation_report_text
+    from .validation import validate, validate_all_targets, validation_report_text
 
     if not Path(args.db_path).exists():
         print(f"Ошибка: файл базы не найден: {args.db_path}", file=sys.stderr)
         return 1
     store = EvidenceStore(args.db_path)
+    kwargs = dict(
+        outcome_types=args.outcome_type, exclude_outcome_types=args.exclude_outcome_type,
+        independence_groups=args.independence_group, agent_id=args.agent_id,
+        calibration_fraction=args.calibration_fraction,
+    )
     try:
-        report = validate(
-            store, target=args.target, outcome_types=args.outcome_type,
-            exclude_outcome_types=args.exclude_outcome_type,
-            independence_groups=args.independence_group, agent_id=args.agent_id,
-            calibration_fraction=args.calibration_fraction,
-        )
+        # Без --target отчёт строится по каждой цели отдельно (v0.9.2):
+        # одна оценка записана под каждую цель, и смешивать их нельзя.
+        if args.target is not None:
+            reports = {args.target: validate(store, target=args.target, **kwargs)}
+        else:
+            reports = validate_all_targets(store, **kwargs)
     finally:
         store.close()
     if args.json:
-        print(json.dumps(asdict(report), ensure_ascii=False, indent=2, default=str))
+        print(json.dumps({t: asdict(r) for t, r in reports.items()}, ensure_ascii=False, indent=2, default=str))
+    elif not reports:
+        print("Validation Engine: в базе нет предсказаний")
     else:
-        print(validation_report_text(report))
+        print("\n\n".join(validation_report_text(r) for r in reports.values()))
     return 0
 
 

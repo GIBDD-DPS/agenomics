@@ -230,12 +230,12 @@ def test_cli_validate_text_and_json():
         out = StringIO()
         with redirect_stdout(out):
             assert main(["validate", db]) == 0
-        assert "Validation Engine:" in out.getvalue()
+        assert "Validation Engine [incident_in_run]:" in out.getvalue()
 
         out = StringIO()
         with redirect_stdout(out):
             assert main(["validate", db, "--json", "--outcome-type", "execution_error"]) == 0
-        data = json.loads(out.getvalue())
+        data = json.loads(out.getvalue())["incident_in_run"]
         assert data["verdict"] in ("no_evidence_of_signal", "signal_not_better_than_baseline",
                                    "signal_beats_baseline", "insufficient_data")
         assert data["filters"]["exclude_outcome_types"] == ["infrastructure_error"]
@@ -258,3 +258,75 @@ def test_beating_baseline_requires_ci_of_difference_above_zero():
         if report.verdict == "signal_not_better_than_baseline":
             assert report.holdout.auc_difference_vs_agent_history_ci[0] <= 0
     assert "signal_beats_baseline" not in verdicts
+
+
+
+# --- v0.9.2: цели, независимость, повторная проверка времени -----------------
+
+def test_mixed_targets_require_explicit_target():
+    store = _store()
+    obs_id = store.record_observation("a", 50.0, "Conditional")
+    for target, donor, outcome_type in (("runtime_failure", "runtime", "execution_error"),
+                                        ("security_incident", "scanner", "secret_leak")):
+        pred = store.record_prediction(obs_id, target, frozen_at=T0)
+        store.record_outcome(pred, donor, outcome_type, False, observed_at=T0 + timedelta(minutes=1))
+    try:
+        validate(store)
+        assert False, "смешивание целей должно быть запрещено"
+    except ValueError as e:
+        assert "runtime_failure" in str(e)
+    from agenomics import validate_all_targets, prediction_targets
+    assert prediction_targets(store) == ["runtime_failure", "security_incident"]
+    reports = validate_all_targets(store)
+    assert set(reports) == {"runtime_failure", "security_incident"}
+    assert all(r.n_pairs == 1 for r in reports.values())
+
+
+def test_report_counts_donors_groups_and_verified_pairs():
+    store = _store()
+    store.register_donor("human", "human", "Reviewer", "human")
+    pred = _add(store, "a", 40.0, True, 0, extra=[("judge", "execution_error", True)])
+    store.record_outcome(pred, "human", "execution_error", True, verification="ground_truth",
+                         observed_at=T0 + timedelta(minutes=5))
+    _add(store, "b", 60.0, False, 1)
+    report = validate(store)
+    assert report.n_donors == 3
+    assert report.independence_groups == ["human", "llm", "runtime"]
+    assert report.n_verified_pairs == 1
+    assert "Независимость: доноров 3" in validation_report_text(report)
+
+
+def test_outcomes_observed_before_freeze_are_rejected():
+    """Имитация импортированной или исправленной вручную базы: исход с
+    временем раньше заморозки в обход record_outcome()."""
+    store = _store()
+    pred = _add(store, "a", 40.0, False, 0)
+    store._conn.execute(
+        "INSERT INTO outcomes (prediction_id, donor_id, outcome_type, occurred, verification, observed_at) "
+        "VALUES (?, 'scanner', 'secret_leak', 1, 'automated', ?)",
+        (pred, (T0 - timedelta(hours=1)).isoformat()),
+    )
+    store._conn.commit()
+    pairs = build_pairs(store)
+    assert len(pairs) == 1 and pairs[0].occurred is False  # подложенный исход не засчитан
+    report = validate(store)
+    assert report.n_rejected_outcomes == 1
+    assert "отброшено исходов раньше заморозки: 1" in validation_report_text(report)
+
+
+def test_cli_without_target_reports_every_target():
+    from agenomics.cli import main
+    with tempfile.TemporaryDirectory() as tmp:
+        db = os.path.join(tmp, "e.db")
+        store = EvidenceStore(db)
+        store.register_donor("runtime", "execution", "Runtime", "runtime")
+        obs_id = store.record_observation("a", 50.0, "Conditional")
+        for target in ("runtime_failure", "task_failure"):
+            pred = store.record_prediction(obs_id, target, frozen_at=T0)
+            store.record_outcome(pred, "runtime", "x", False, observed_at=T0 + timedelta(minutes=1))
+        store.close()
+        out = StringIO()
+        with redirect_stdout(out):
+            assert main(["validate", db]) == 0
+        text = out.getvalue()
+        assert "Validation Engine [runtime_failure]" in text and "Validation Engine [task_failure]" in text

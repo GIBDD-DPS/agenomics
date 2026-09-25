@@ -309,6 +309,17 @@ class EvidenceStore(EvidenceGraphMixin):
         self._insert_incidents(observation_id, incidents)
         self._conn.commit()
 
+    def add_incidents(self, observation_id: int, incidents: List[Incident]) -> None:
+        """[v0.9.2] Добавляет инциденты к уже записанному наблюдению, не
+        трогая task_outcome. Нужно, когда инцидент известен (например,
+        утечка секрета), а исход задачи нет: record_task_outcome()
+        потребовал бы выдумать исход."""
+        row = self._conn.execute("SELECT 1 FROM observations WHERE id = ?", (observation_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"наблюдение id={observation_id} не найдено")
+        self._insert_incidents(observation_id, incidents)
+        self._conn.commit()
+
     def _insert_incidents(self, obs_id: int, incidents: Optional[List[Incident]]) -> None:
         for incident in (incidents or []):
             severity_value = incident.severity.value if hasattr(incident.severity, "value") else incident.severity
