@@ -85,3 +85,19 @@ def test_release_manifest_verifies_against_git_when_history_available():
         return  # неполный клон (CI): коммита нет локально
     import release_manifest
     assert release_manifest.verify(commit) == 0
+
+
+def test_verify_wheel_finds_manifest_in_git_when_checkout_lacks_it(monkeypatch):
+    """Пакет собирают из checkout тега, а манифест появляется в main позже:
+    в рабочей копии его нет, и он должен найтись в Git."""
+    import release_manifest
+    real_exists = Path.exists
+    monkeypatch.setattr(Path, "exists", lambda p: False if p.name == "SOURCE_MANIFEST.json" else real_exists(p))
+    monkeypatch.setattr(release_manifest, "MANIFEST_REFS", ("HEAD",))
+    assert release_manifest.load_manifest("0.9.2")["release_id"] == "AGN-0.9.2"
+    try:
+        release_manifest.load_manifest("0.0.0")
+    except SystemExit as e:
+        assert "git fetch origin" in str(e)
+    else:
+        raise AssertionError("ожидалась ошибка для несуществующего манифеста")
