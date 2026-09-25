@@ -4,6 +4,21 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/),
 версионирование: [Semantic Versioning](https://semver.org/) (0.x: API нестабилен).
 
+## [0.9.1] - 2026-09-24
+
+### Добавлено
+- **Validation Engine** (`agenomics/validation.py`): предсказывает ли Trust Score, замороженный до задачи, то, что произошло после. Работает только на парах Prediction → Outcome из Evidence Graph. Риск = 100 − score
+  - ROC-AUC (через ранги, ничьи 0.5), PR-AUC (average precision, равные score одним порогом), Brier и калибровка с ECE по наивной вероятности p = риск / 100
+  - 95% CI кластерным bootstrap по агентам (по наблюдениям при < 5 агентах, это видно в отчёте)
+  - Temporal holdout: порог риска (статистика Юдена) выбирается на ранних 60% предсказаний, precision/recall/F1/accuracy и AUC считаются только на поздних
+  - Baseline: константа (Brier), majority class (accuracy), историческая частота инцидентов этого же агента (AUC, Brier)
+  - Уровень агента: Spearman среднего score с частотой событий
+  - Вердикт: `insufficient_data` / `no_evidence_of_signal` / `signal_not_better_than_baseline` / `signal_beats_baseline`. Последний требует и CI AUC выше 0.5, и **CI разницы AUC со baseline истории агента выше нуля**: сравнение точечных AUC на синтетике, где score лишь кодирует агента, в 6 из 20 seed объявляло ложную победу, с CI разницы ни в одном
+  - Фильтры: `target`, `outcome_types`, `independence_groups`, `verification`, `agent_id`. Предсказание с произошедшим `infrastructure_error` исключается целиком (агент не работал), предсказание без подходящих исходов пропускается (исход неизвестен, а не "не произошло")
+- **`agenomics validate <db>`** (текст или `--json`), код выхода 0 при любом вердикте
+- `framework_eval.yml`: отчёт Validation Engine после каждого прогона (`if: always()`, не валит job)
+- Тесты: `tests/test_validation.py` (19), включая сценарии с заранее известным вердиктом и устойчивость к seed
+
 ## [0.9.0] - 2026-09-24
 
 Evidence Graph: кто сообщил каждое доказательство и насколько этот источник независим. Без этого 100 оценок одного LLM-судьи выглядели как 100 независимых подтверждений.
