@@ -1,0 +1,217 @@
+{
+  "release_id": "AGN-0.9.5",
+  "product": "Agenomics",
+  "version": "0.9.5",
+  "author": "Dm.Andreyanov",
+  "brand": "Prizolov Lab",
+  "copyright": "© 2026 Dm.Andreyanov / Prizolov Lab",
+  "license": "Apache-2.0",
+  "git_commit": "a786368733d1e7dd22b276071d7505696a6ded4b",
+  "commit_date": "2026-09-26T00:44:43+03:00",
+  "tag": "v0.9.5",
+  "hash_algorithm": "SHA-256",
+  "line_endings": "LF-normalized",
+  "source_sha256": "82c23efc6a01021f9ffb3e5045907d7f719a244a3e964664e5d177e1f5fba0e1",
+  "files": [
+    {
+      "path": "CHANGELOG.md",
+      "sha256": "7e026e42896971b01c68a8c36d199ef2518314f793b169cb68b720e4664b0423",
+      "bytes": 85389
+    },
+    {
+      "path": "IP/AUTHOR.md",
+      "sha256": "1b1a5fb239f2c6a92d883f48b33a6a0a5122c864713e20d461dc8a31802385f3",
+      "bytes": 323
+    },
+    {
+      "path": "IP/COPYRIGHT.md",
+      "sha256": "2082ffcf5dbe8c1ccd72c5513c0ed9b65de4490d0c942df80939902e1be95ec8",
+      "bytes": 1364
+    },
+    {
+      "path": "IP/CREATION_RECORD.md",
+      "sha256": "102942bfdee5c6b5ca176dd35e0d0d8900db49851af040caf9eb3f8cda4ec1c0",
+      "bytes": 4409
+    },
+    {
+      "path": "IP/IP_MANIFEST.json",
+      "sha256": "d856db35742cf10d2b732dfdd438090751c23b5bee4ed3ddd115b2820cb96d8f",
+      "bytes": 6125
+    },
+    {
+      "path": "IP/RELEASE_POLICY.md",
+      "sha256": "5532183b4fb37fa50ec06488bdc94f8ce8f4357f69bdfd5d5ad53399f4f646b2",
+      "bytes": 4385
+    },
+    {
+      "path": "IP/THIRD_PARTY_LICENSES.md",
+      "sha256": "1c52eb8854de32a1e6a18c5b4e4517b5292e33d38fa88274aa9910d8f7b4fbdc",
+      "bytes": 1394
+    },
+    {
+      "path": "IP/TRADEMARKS.md",
+      "sha256": "2933f3e16927eee6209876e422ebf6d16215001a77ac184c212a3a7a51d9b2b6",
+      "bytes": 1366
+    },
+    {
+      "path": "LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "bytes": 11358
+    },
+    {
+      "path": "NOTICE",
+      "sha256": "66980663d7b9bf13c752af624708bbeca69aee0bba191eb747fe9bbd74533700",
+      "bytes": 528
+    },
+    {
+      "path": "README.md",
+      "sha256": "2cb893160f02ba150f528ebea29a7cb6dfdc4321cf749fde26623dfc6ce1fed1",
+      "bytes": 57168
+    },
+    {
+      "path": "agenomics/__init__.py",
+      "sha256": "deb68bfbd51232e726c0f8c5009cc553cf99653efe80ad30ecd0b9913c0b0bc6",
+      "bytes": 4452
+    },
+    {
+      "path": "agenomics/adversarial.py",
+      "sha256": "56686d466badab8892e0f67ebc440fc25ad5b336ae0de95fd9f26dbc385c098e",
+      "bytes": 16129
+    },
+    {
+      "path": "agenomics/api.py",
+      "sha256": "250ad0fc021233e5eca43b7f4ddfdb56468772fcbb0d61bbb1f640862da20c3a",
+      "bytes": 10415
+    },
+    {
+      "path": "agenomics/chain.py",
+      "sha256": "9bdea55bae7f50ebbc1ee7ab353639790c3522e06182f5d7485e62fef9d11b95",
+      "bytes": 3005
+    },
+    {
+      "path": "agenomics/cli.py",
+      "sha256": "c9072b31a5b96d83ee3023ff36df37225f9bf4ea2cdf8554f88aafaf54928449",
+      "bytes": 10373
+    },
+    {
+      "path": "agenomics/compatibility.py",
+      "sha256": "5608b58b68540c06bfc66e3079e2985d89b62463a71c1f55a6ceab01012d4dfb",
+      "bytes": 10051
+    },
+    {
+      "path": "agenomics/drift.py",
+      "sha256": "aaf06dbca8b530bc0a48eb444869c782a2e65f287c5c447b8baa40d2115c0f3e",
+      "bytes": 11925
+    },
+    {
+      "path": "agenomics/evaluation.py",
+      "sha256": "8a0ec192ffcad61a1b39a9123b4819bc4dafd1352fca2c83a863ed10fde54e6d",
+      "bytes": 14346
+    },
+    {
+      "path": "agenomics/evidence.py",
+      "sha256": "6446c71c6950835ceed4965192035816675aacf6ae67f54fa26bfe58d00e693f",
+      "bytes": 26974
+    },
+    {
+      "path": "agenomics/evidence_graph.py",
+      "sha256": "cd6b0f0fab89ac4ad022d30cfa0e9a7260c5681946911d47072195c650a273d9",
+      "bytes": 21149
+    },
+    {
+      "path": "agenomics/extractor.py",
+      "sha256": "5b14cc421746601f4fedd4381cdd8aa66bafa2009b886b921bc94df18846adcb",
+      "bytes": 16189
+    },
+    {
+      "path": "agenomics/feedback.py",
+      "sha256": "4cf08fac4d60aa1076b4c07c190d435a518bc9d1b53791f90b64ad188ff30c6f",
+      "bytes": 5988
+    },
+    {
+      "path": "agenomics/heatmap.py",
+      "sha256": "ffa56e2d3438282503d9a7016a088b669c80c5def96c527707f3b2ae74cc33af",
+      "bytes": 5145
+    },
+    {
+      "path": "agenomics/hooks.py",
+      "sha256": "d7945dcf76bc34b3b20ac74be0989e5f84802216977fa108351f143e736b10ba",
+      "bytes": 7543
+    },
+    {
+      "path": "agenomics/ledger.py",
+      "sha256": "73ee3e511d9b6d034e1438c09b68343e25774fb6f3d8ec1f74887427c4875720",
+      "bytes": 10953
+    },
+    {
+      "path": "agenomics/matchmaker.py",
+      "sha256": "caccf62369cfc870f70962e9c9fa6e612d171fcc9535548940417f97a0477813",
+      "bytes": 2831
+    },
+    {
+      "path": "agenomics/per_axis_drift.py",
+      "sha256": "97c0cd66579265321136d0198889d896144a3e95951f32e236d4f331c6b55c49",
+      "bytes": 6213
+    },
+    {
+      "path": "agenomics/phenotype.py",
+      "sha256": "ff03c85700511a88a50bc6fd548be2e84c2a81422e1b3214b729fb23ea886ee4",
+      "bytes": 6713
+    },
+    {
+      "path": "agenomics/reports.py",
+      "sha256": "aba465d0f530d14ad5aed8aa8096e57a1b5dd2874890e5d06658b3faa7a4fb81",
+      "bytes": 20078
+    },
+    {
+      "path": "agenomics/trust_score.py",
+      "sha256": "887b1d55477bda1a8b54211006302f4f664afdf2ecb3036e896125aac9d0bea6",
+      "bytes": 24657
+    },
+    {
+      "path": "agenomics/validation.py",
+      "sha256": "4666e29560b43103d75794e8341c37bc71cd93aa936352bcf6ec0bde44fbd374",
+      "bytes": 31796
+    },
+    {
+      "path": "docs/AEP-001.md",
+      "sha256": "4dda18e5509b38faa0b89b9c255a9ac7cdecd838b6e9d87acb80761b43b0595f",
+      "bytes": 19154
+    },
+    {
+      "path": "docs/CONNECT_YOUR_AGENTS.md",
+      "sha256": "c25c4b322b9eacf82db88b08e94bf26e80a922ed3af9c45ba89f83e9ddc91e42",
+      "bytes": 12140
+    },
+    {
+      "path": "docs/METHODOLOGY.md",
+      "sha256": "ffe515d64a32f5ea76888b076d3db602808431e86c2d92b66973e3ac240eae6d",
+      "bytes": 21065
+    },
+    {
+      "path": "docs/PRIZOLOV_BRIDGE_INTERFACE.md",
+      "sha256": "41d85abca22927d25c45ddd1bcc0daa6f29ca06c643635c5651cb2c5fb005502",
+      "bytes": 11888
+    },
+    {
+      "path": "docs/SPECIFICATION.md",
+      "sha256": "52bfd2c117fbcbee2fda9f4863ab363eba85bc66d55d07f42e018da108e23f26",
+      "bytes": 14967
+    },
+    {
+      "path": "docs/baselines/v0.9.3.md",
+      "sha256": "9680980ff5965cf1cba4d8edcbb12cb2295eb17b005a9a70779866d4c63ed0e3",
+      "bytes": 5292
+    },
+    {
+      "path": "prompts/trust_auditor_v0.2.md",
+      "sha256": "90f9f207847dbca29cadf86ba3093652100f3932dab077f9200e10c8aa72d84e",
+      "bytes": 6612
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "3b8cbd42c6091ddf87028f8f20358ec2a326bbc621c25df71bd971cfa52f0316",
+      "bytes": 1637
+    }
+  ]
+}
