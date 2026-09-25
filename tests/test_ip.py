@@ -101,3 +101,16 @@ def test_verify_wheel_finds_manifest_in_git_when_checkout_lacks_it(monkeypatch):
         assert "git fetch origin" in str(e)
     else:
         raise AssertionError("ожидалась ошибка для несуществующего манифеста")
+
+
+def test_creation_record_row_matches_hand_written_record():
+    """--record восстанавливает из Git те же коммиты, что записаны вручную."""
+    if subprocess.run(["git", "rev-parse", "-q", "--verify", "refs/tags/v0.9.3"], cwd=ROOT,
+                      capture_output=True).returncode != 0:
+        return  # неполный клон (CI): тегов нет
+    import release_manifest
+    record = (ROOT / "IP" / "CREATION_RECORD.md").read_text(encoding="utf-8")
+    for tag in ("v0.9.3", "v0.9.2", "v0.8.0"):
+        generated = release_manifest.creation_record_row(tag).split(" | ")[:4]
+        written = next(line for line in record.splitlines() if line.startswith(f"| {tag[1:]} |")).split(" | ")[:4]
+        assert generated == written

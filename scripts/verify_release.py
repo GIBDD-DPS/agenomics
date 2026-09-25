@@ -77,6 +77,7 @@ CRITICAL_FILES = [
     "scripts/ip_headers.py",
     "scripts/release_manifest.py",
     ".github/workflows/framework_eval.yml",
+    ".github/workflows/publish.yml",
 ]
 
 # 19 активных шаблонов фреймворков, добавлены отдельным списком, потому

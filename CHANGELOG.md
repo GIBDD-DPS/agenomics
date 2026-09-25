@@ -4,6 +4,15 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/),
 версионирование: [Semantic Versioning](https://semver.org/) (0.x: API нестабилен).
 
+## [Unreleased]
+
+### Добавлено
+- **`.github/workflows/publish.yml`**: выпуск по annotated-тегу `vX.Y.Z`. Проверки тега, тесты, сборка, smoke test wheel в чистом окружении, манифест по тегу, публикация на PyPI через Trusted Publishing (без токена), сверка пакета с PyPI с манифестом, GitHub Release с манифестом и `SHA256SUMS.txt`, PR с `release/vX.Y.Z/` и строкой `CREATION_RECORD.md`. Публикация включается переменной `PYPI_TRUSTED_PUBLISHING=true` после настройки издателя на PyPI; до этого тег проходит только проверки и сборку. Порядок: `IP/RELEASE_POLICY.md`
+- **`release_manifest.py --record vX.Y.Z`**: строка версии для `IP/CREATION_RECORD.md` из Git и CHANGELOG (дата, коммит версии, коммит слияния и PR)
+
+### Исправлено
+- `release_manifest.py --verify-wheel` из checkout тега: манифест берётся из `origin/main`, если его нет в рабочей копии
+
 ## [0.9.3] - 2026-09-25
 
 Авторство и происхождение: Agenomics · Dm.Andreyanov · Prizolov Lab · 2026.
