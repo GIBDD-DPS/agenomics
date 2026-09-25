@@ -1,4 +1,4 @@
-# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 Шаблон под Agno (бывший Phidata), переведён на Groq (бесплатный провайдер).
 Требует переменную окружения GROQ_API_KEY.
@@ -24,6 +24,12 @@ def run():
 
     response = agent.run("В коробке 14 карандашей. Из неё взяли 5, потом положили 9. Сколько карандашей в коробке? Ответь одним числом.")
     print(response.content)
+    # [v0.9.5] Agno не бросает исключение при ошибке провайдера (нет сети,
+    # 401, 429): RunOutput получает status=ERROR, а текст ошибки попадает в
+    # content. Без этой проверки сбой прогона записывался бы как неверный
+    # ответ агента (task_failure), а не как ошибка выполнения.
+    if getattr(getattr(response, "status", None), "value", None) == "ERROR":
+        raise RuntimeError(f"agno RunStatus.ERROR: {response.content}")
     return response
 
 

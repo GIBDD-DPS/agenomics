@@ -1,4 +1,4 @@
-# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """Тесты полного пайплайна capture_log_v2 -> genome_from_capture -> EvidenceStore."""
 
 import sys
@@ -204,8 +204,29 @@ def test_runner_passes_model_version_from_template():
     from run_all_frameworks import discover_frameworks
     discovered = discover_frameworks()
     assert discovered["langchain_bot"]["model_version"] == "groq/openai/gpt-oss-20b"
-    assert discovered["google_adk_bot"]["model_version"] == "google/gemini-2.5-flash"
-    assert discovered["langchain_bot"]["prompt_version"] is None
+    assert discovered["google_adk_bot"]["model_version"] == "groq/openai/gpt-oss-20b"  # с v0.9.5
+    assert discovered["langchain_bot"]["prompt_version"] == "task-v1"
+
+
+def test_every_framework_template_declares_prompt_version():
+    """[v0.9.5] Версия задачи у каждого шаблона: без неё смена задачи не
+    видна в genome_hash, и прогоны разных задач смешиваются в истории."""
+    missing = [p.name for p in _framework_templates()
+               if not _module_constant(p.read_text(encoding="utf-8"), "PROMPT_VERSION")]
+    assert not missing, f"PROMPT_VERSION не объявлен в: {missing}"
+
+
+def test_disabled_templates_are_not_run_but_reported():
+    """[v0.9.5] DISABLED выключает шаблон: раннер его не запускает, а
+    include_disabled=True показывает его с причиной."""
+    from run_all_frameworks import discover_frameworks
+    enabled = discover_frameworks()
+    everything = discover_frameworks(include_disabled=True)
+    disabled = {n: c["disabled"] for n, c in everything.items() if c["disabled"]}
+    assert set(disabled) == {"atomic_agents_bot", "crewai_bot", "txtai_bot"}
+    assert all(reason.strip() for reason in disabled.values())
+    assert not set(disabled) & set(enabled)
+    assert len(enabled) == len(everything) - len(disabled) >= 19
 
 
 
@@ -268,8 +289,12 @@ def test_checks_read_final_answer_of_each_framework():
         "semantic_kernel_bot": lambda t: NS(content=t),
         "swarms_bot": lambda t: t,
         "txtai_bot": lambda t: t,
+        # v0.9.5
+        "strands_agents_bot": lambda t: NS(message={"role": "assistant", "content": [{"text": t}]}),
+        "deepagents_bot": lambda t: {"messages": [NS(content="q"), NS(content=t)]},
+        "agent_framework_bot": lambda t: NS(text=t),
     }
-    discovered = discover_frameworks()
+    discovered = discover_frameworks(include_disabled=True)
     for name, shape in shapes.items():
         check = discovered[name]["check"]
         answer = _check_answer((Path(__file__).resolve().parent / "frameworks" / f"{name}.py").read_text(encoding="utf-8"))
@@ -406,7 +431,10 @@ def test_framework_package_is_installed_in_ci_workflow():
     workflow = (Path(__file__).resolve().parents[2] / ".github/workflows/framework_eval.yml").read_text(encoding="utf-8")
     missing = []
     for p in _framework_templates():
-        package = _module_constant(p.read_text(encoding="utf-8"), "FRAMEWORK_PACKAGE")
+        source = p.read_text(encoding="utf-8")
+        if _module_constant(source, "DISABLED"):
+            continue  # выключенный шаблон не запускается, ставить его библиотеку незачем
+        package = _module_constant(source, "FRAMEWORK_PACKAGE")
         if package not in workflow:
             missing.append(f"{p.name}: {package}")
     assert not missing, missing
@@ -698,6 +726,19 @@ def test_task_check_pass_and_fail():
         assert store.get_observations(fw)[0].task_outcome == outcome
         check_evidence = [e for e in store.get_evidence(agent_id=fw) if e.evidence_type == "task_check"][0]
         assert check_evidence.finding == finding and check_evidence.quality_level == "Q3"
+    store.close()
+
+
+def test_infrastructure_failure_leaves_task_outcome_unknown():
+    """[v0.9.5] Нет ключа или не ставится библиотека: агент до задачи не
+    дошёл. task_outcome пуст (а не failure, как до v0.9.5), и колонка
+    совпадает с графом доказательств, где у прогона infrastructure_error."""
+    store = EvidenceStore(":memory:")
+    _run(store, run_fn=_raise(ModuleNotFoundError("No module named 'x'")), check_fn=lambda r: True)
+    obs = store.get_observations("fw")[0]
+    assert obs.task_outcome is None and obs.execution_status == "error"
+    task = _predictions_by_target(store)["task_failure"]
+    assert [(o.outcome_type, o.occurred) for o in task.outcomes] == [("infrastructure_error", True)]
     store.close()
 
 

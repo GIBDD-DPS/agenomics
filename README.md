@@ -8,10 +8,10 @@ Genetics for AI Agents. Predictability and compatibility scoring for autonomous 
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Status](https://img.shields.io/badge/status-v0.9.4-orange.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-v0.9.5-orange.svg)](CHANGELOG.md)
 [![PyPI](https://img.shields.io/badge/PyPI-agenomics-blue.svg)](https://pypi.org/project/agenomics/)
 
-> **Автор**: Dm.Andreyanov **Версия**: 0.9.4 **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
+> **Автор**: Dm.Andreyanov **Версия**: 0.9.5 **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
 >
 > 📐 Формальная спецификация конвейера (Genome → Genome Schema → Phenotype
 > → Trust Model → Compatibility Model → Drift Model → Observed Behaviour
@@ -21,7 +21,7 @@ Genetics for AI Agents. Predictability and compatibility scoring for autonomous 
 > 🚀 Хотите подключить реального агента и начать собирать данные для
 > Incident Correlation? Гайд на 15 минут: [`docs/CONNECT_YOUR_AGENTS.md`](docs/CONNECT_YOUR_AGENTS.md).
 > 🔌 Шаблоны-адаптеры для 19 популярных agent-фреймворков на бесплатном
-> провайдере (LangChain, CrewAI, AG2, LlamaIndex, Griptape и других)
+> провайдере (LangChain, AG2, LlamaIndex, Griptape, Strands Agents и других)
 > с авто-обнаружением и запуском по расписанию:
 > [`examples/framework_evaluation/`](examples/framework_evaluation/README.md).
 > Наличие адаптера не означает гарантированную production-совместимость
@@ -682,11 +682,10 @@ Python. `requirements.txt` нужен для запуска этого репо�
 
 ### Открытые операционные вопросы (действие, не версия)
 
-- [ ] `prizolov-sports-ai`: SQLite или PostgreSQL. Если PostgreSQL, бэкенд `EvidenceStore` сдвигается из v0.9.5 раньше, поэтому ответ нужен до начала Validation Engine (v0.9.x)
-- [ ] `atomic_agents_bot`: необъяснённый `ImportError`
-- [ ] `crewai_bot`: ждём исправления внешнего бага CrewAI
-- [ ] `txtai_bot`: падает в прогонах по расписанию, причина не разобрана (на 24.09.2026 experimental)
-- [ ] Секреты `HF_TOKEN`/`GOOGLE_API_KEY` в репозитории (без них smolagents и Google ADK падают на каждом прогоне)
+- [ ] `prizolov-sports-ai`: SQLite или PostgreSQL. Если PostgreSQL, бэкенд `EvidenceStore` сдвигается из Release Candidate раньше
+- [x] `atomic_agents_bot`, `crewai_bot`, `txtai_bot`: выключены в v0.9.5 (`DISABLED`), вместо них Strands Agents, Deep Agents, Microsoft Agent Framework
+- [x] Секреты `HF_TOKEN`/`GOOGLE_API_KEY` больше не нужны: smolagents и Google ADK переведены на Groq (v0.9.5)
+- [ ] Приложить базу прогона 36162374190 к Release `baseline-v0.9.3` ([`docs/baselines/v0.9.3.md`](docs/baselines/v0.9.3.md)): артефакт Actions удаляется через 90 дней
 - [ ] Копить данные до уровня `preliminary` (n≥50 наблюдений на агента, `agenomics/evaluation.py`)
 
 ### v0.8.0: Evidence Foundation (выполнено)
@@ -726,13 +725,15 @@ Python. `requirements.txt` нужен для запуска этого репо�
 ### v0.9.x: дальше
 
 - [x] Задачи с проверяемым ответом для всех 19 шаблонов (v0.9.4): `task_failure` измеряется у каждого агента
+- [x] v0.9.5 Validation Integrity: `task_outcome` пуст при сбое окружения; `PROMPT_VERSION` у всех шаблонов; шапка отчёта с объёмом и качеством данных (Q0–Q4); `incident_in_run` помечена как устаревшая цель; эталон данных v0.9.3; ошибки провайдера в Griptape/Agno/Swarms больше не выглядят как неверный ответ
+- [ ] После v0.9.5 новых функций не добавлять: копить проспективные предсказания (100+, затем 500+) на разных задачах, промптах и моделях, затем решение о 1.0
 
 - [ ] Фильтр по `quality_level`: у исходов его нет, он есть у доказательств; нужно решить, как связывать
 - [ ] Статистика на уровне конфигурации (`genome_hash`) как отдельный уровень, а не только счётчик
 - [ ] LLM-судьи как доноры (`judge`): поведенческая классификация ошибок (hallucination/wrong_decision/reasoning_error) и токсичность в Adversarial Suite. Требует ключа API и решения о модели судьи
 - [ ] Adversarial-пробы в `framework_evaluation`: шаблонам нужна функция `ask(prompt)` помимо `run()`
 
-### v0.9.5: Release Candidate
+### Release Candidate (после накопления данных)
 
 - [ ] `/api/v1` с аутентификацией, rate limiting, structured errors
 - [ ] Расширение CLI: `audit`, `drift`, `evidence export` сверх 5 команд из v0.7.10

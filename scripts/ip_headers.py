@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 ip_headers.py. Строка авторства в начале каждого .py файла проекта.
 

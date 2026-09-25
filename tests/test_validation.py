@@ -1,4 +1,4 @@
-# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 test_validation.py. Тесты Validation Engine (v0.9.1).
 
@@ -331,3 +331,46 @@ def test_cli_without_target_reports_every_target():
             assert main(["validate", db]) == 0
         text = out.getvalue()
         assert "Validation Engine [runtime_failure]" in text and "Validation Engine [task_failure]" in text
+
+
+# --- v0.9.5: устаревшая цель, шапка с объёмом и качеством данных -------------
+
+def test_legacy_target_is_marked_and_reported_last():
+    store = _store()
+    obs_id = store.record_observation("a", 50.0, "Conditional")
+    for target, donor, outcome_type in (("incident_in_run", "runtime", "execution_error"),
+                                        ("runtime_failure", "runtime", "execution_error"),
+                                        ("security_incident", "scanner", "secret_leak")):
+        pred = store.record_prediction(obs_id, target, frozen_at=T0)
+        store.record_outcome(pred, donor, outcome_type, False, observed_at=T0 + timedelta(minutes=1))
+    from agenomics import prediction_targets, validate_all_targets
+    assert prediction_targets(store) == ["runtime_failure", "security_incident", "incident_in_run"]
+    reports = validate_all_targets(store)
+    assert reports["incident_in_run"].legacy_note and reports["runtime_failure"].legacy_note is None
+    text = validation_report_text(reports["incident_in_run"])
+    assert "(устаревшая цель)" in text and "runtime_failure" in text
+
+
+def test_cli_prints_evidence_profile_before_reports():
+    from agenomics.cli import main
+    with tempfile.TemporaryDirectory() as tmp:
+        db = os.path.join(tmp, "e.db")
+        store = EvidenceStore(db)
+        store.register_donor("runtime", "execution", "Runtime", "runtime")
+        obs_id = store.record_observation("a", 50.0, "Conditional", genome_hash="cfg")
+        store.record_evidence(obs_id, "runtime", "execution", "success", "Q1")
+        pred = store.record_prediction(obs_id, "runtime_failure", frozen_at=T0)
+        store.record_outcome(pred, "runtime", "execution_error", False, observed_at=T0 + timedelta(minutes=1))
+        store.close()
+        out = StringIO()
+        with redirect_stdout(out):
+            assert main(["validate", db]) == 0
+        text = out.getvalue()
+        assert text.index("База: наблюдений 1") < text.index("Validation Engine [runtime_failure]")
+        assert "Q1 1" in text and "Q4 0" in text and "с исходом 1" in text
+        out = StringIO()
+        with redirect_stdout(out):
+            assert main(["validate", db, "--json"]) == 0
+        data = json.loads(out.getvalue())
+        assert data["evidence_profile"]["evidence_by_quality"]["Q1"] == 1
+        assert "runtime_failure" in data

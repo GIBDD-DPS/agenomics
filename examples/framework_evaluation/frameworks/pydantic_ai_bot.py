@@ -1,4 +1,4 @@
-# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 Шаблон под Pydantic AI, переведён на Groq (бесплатный провайдер).
 Нативная поддержка подтверждена ai.pydantic.dev/api/models/groq.

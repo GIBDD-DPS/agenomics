@@ -1,4 +1,4 @@
-# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 run_all_frameworks.py — автоматический раннер: авто-обнаружение всех
 фреймворков в папке frameworks/ + прогон + запись в EvidenceStore.
@@ -69,7 +69,7 @@ def summarize(results: list) -> tuple:
     return "\n".join(lines), (1 if required_failed else 0)
 
 
-def discover_frameworks() -> dict:
+def discover_frameworks(include_disabled: bool = False) -> dict:
     """
     Сканирует frameworks/*.py, импортирует каждый файл как модуль и
     берёт из него функцию run() (обязательна) + DOMAIN/AUTONOMY/
@@ -78,6 +78,13 @@ def discover_frameworks() -> dict:
     FRAMEWORK_PACKAGE и CI_TIER. Файлы без run() пропускаются с предупреждением,
     а не роняют весь скрипт — тот же принцип отказоустойчивости,
     что и в capture_log_v2.py.
+
+    [v0.9.5] DISABLED = "<причина>" в шаблоне выключает его: прогоны не
+    запускаются, а файл и накопленная история остаются. Выключаются
+    шаблоны, которые не дают данных об агенте (нет ключа, не ставится
+    библиотека, внешний баг): их прогоны целиком уходят в
+    infrastructure_error и только тратят лимит провайдера. По умолчанию
+    выключенные не возвращаются; include_disabled=True нужен для отчёта.
     """
     discovered = {}
     if not FRAMEWORKS_DIR.exists():
@@ -101,6 +108,7 @@ def discover_frameworks() -> dict:
             continue
 
         discovered[name] = {
+            "disabled": getattr(module, "DISABLED", None),
             "run": module.run,
             "domain": getattr(module, "DOMAIN", "content"),
             "autonomy": getattr(module, "AUTONOMY", "advisory"),
@@ -114,16 +122,22 @@ def discover_frameworks() -> dict:
             print(f"[WARN] {py_file.name}: CI_TIER={discovered[name]['ci_tier']!r} "
                   f"не из {CI_TIERS}, считается experimental.")
             discovered[name]["ci_tier"] = "experimental"
-    return discovered
+    if include_disabled:
+        return discovered
+    return {name: config for name, config in discovered.items() if not config["disabled"]}
 
 
 def main():
-    frameworks = discover_frameworks()
+    everything = discover_frameworks(include_disabled=True)
+    frameworks = {name: config for name, config in everything.items() if not config["disabled"]}
     if not frameworks:
         print("Фреймворков не найдено. Добавьте .py файлы с функцией run() в папку frameworks/.")
         return 1
 
     print(f"Обнаружено фреймворков: {len(frameworks)} — {list(frameworks.keys())}")
+    for name, config in everything.items():
+        if config["disabled"]:
+            print(f"  выключен: {name} — {config['disabled']}")
     print()
 
     store = EvidenceStore(str(DB_PATH))
@@ -145,7 +159,7 @@ def main():
         task_marker = {True: " задача✅", False: " задача❌", None: ""}[summary["task_check"]]
         # Trust Score и надёжность запуска разные величины (v0.9.0): score не
         # учитывает падения из-за окружения, надёжность учитывает всё.
-        print(f"{marker} {name:20s} score={summary['score']:.1f} ({summary['label']}) "
+        print(f"{marker} {name:22s} score={summary['score']:.1f} ({summary['label']}) "
               f"reliability={summary['runtime_reliability']:.0%}{task_marker}{leak_marker}")
 
     store.close()

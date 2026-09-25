@@ -35,23 +35,29 @@ jobs:
         run: |
           pip install langchain langchain-groq
           pip install autogen
-          pip install crewai
           pip install llama-index-core llama-index-llms-groq
           pip install langgraph
           pip install haystack-ai
           pip install "camel-ai[web_tools]"
           pip install griptape
-          pip install agno
+          pip install agno groq
           pip install pydantic-ai
           pip install dspy
-          pip install atomic-agents instructor groq
-          pip install smolagents
-          pip install google-adk
-          pip install "txtai[agent]"
+          pip install "smolagents[litellm]"
+          pip install google-adk litellm
           pip install swarms
           pip install semantic-kernel
           pip install openai-agents
           pip install beeai-framework
+          # v0.9.5: вместо выключенных atomic_agents, crewai, txtai.
+          # Все фреймворки стоят в одном окружении, и новый пакет может
+          # сломать соседей. strands-agents без ограничения поднимает
+          # opentelemetry до 1.45, с которым не импортируются swarms и
+          # google-adk (он требует <=1.42.1). autogen-agentchat не взят:
+          # понижает protobuf до 5.29 и ломает AG2.
+          pip install "strands-agents[litellm]" "opentelemetry-api<=1.42.1" "opentelemetry-sdk<=1.42.1"
+          pip install deepagents
+          pip install agent-framework-core agent-framework-openai
           pip install requests
         continue-on-error: true
 
@@ -74,9 +80,8 @@ jobs:
       - name: Run all frameworks
         run: python run_all_frameworks.py
         env:
+          # С v0.9.5 все шаблоны работают через Groq: другие ключи не нужны.
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
 
       # Validation Engine (v0.9.1): предсказывает ли замороженный Trust Score
       # исходы. Отчёт, а не проверка: insufficient_data на ранних данных

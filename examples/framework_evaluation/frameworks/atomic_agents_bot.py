@@ -1,4 +1,4 @@
-# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 Шаблон под Atomic Agents, переведён на Groq (бесплатный провайдер, через
 instructor.from_groq()). Требует пакет groq и переменную GROQ_API_KEY.
@@ -20,6 +20,7 @@ MODEL_VERSION = "groq/openai/gpt-oss-20b"  # провайдер/модель, з
 FRAMEWORK_PACKAGE = "atomic-agents"  # имя дистрибутива для importlib.metadata.version()
 PROMPT_VERSION = "task-v2"  # с 0.9.4 задача с проверяемым ответом вместо открытого вопроса
 CI_TIER = "experimental"  # required: падение валит CI; experimental: только в отчёте
+DISABLED = "import_error в каждом прогоне CI (конфликт instructor/jiter с остальными фреймворками), 0% надёжности"  # v0.9.5: прогоны не запускаются, история сохраняется
 
 
 def run():
