@@ -1,4 +1,4 @@
-# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 test_i18n.py — тесты мультиязычности (v0.4.3): language в TrustScorer,
 CompatibilityScorer, trust_report(), compatibility_report(), trust_report_docx().

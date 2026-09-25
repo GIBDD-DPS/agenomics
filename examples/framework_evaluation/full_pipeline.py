@@ -1,4 +1,4 @@
-# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 full_pipeline.py. Склеивает захват лога, построение генома, TrustScorer
 и запись в EvidenceStore в один вызов.
@@ -407,8 +407,14 @@ def run_framework_and_record(
     # задача не выполнена; есть проверка, значит её результат; иначе
     # неизвестно. Утечка секрета это отдельный исход (security_incident),
     # а не провал задачи, как было до v0.9.2.
+    #
+    # [v0.9.5] Прогон, упавший из-за окружения (нет ключа, не ставится
+    # библиотека, rate limit), это "исход неизвестен", а не провал задачи:
+    # агент до задачи не дошёл. До v0.9.5 здесь писалось "failure", и
+    # колонка task_outcome противоречила графу доказательств, где у того
+    # же прогона infrastructure_error.
     if status == "error":
-        task_outcome = "failure"
+        task_outcome = None if is_infrastructure else "failure"
     elif task_check is not None:
         task_outcome = "success" if task_check else "failure"
     else:

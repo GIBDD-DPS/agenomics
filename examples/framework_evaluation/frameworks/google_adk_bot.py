@@ -1,14 +1,15 @@
-# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
-Шаблон под Google ADK (Agent Development Kit). Уже использует бесплатный
-провайдер (Gemini API free tier через Google AI Studio), изменений в
-логике не требовалось - нужен только GOOGLE_API_KEY (бесплатный ключ
-с ai.google.dev).
+Шаблон под Google ADK (Agent Development Kit), модель Groq через LiteLlm.
+Требует переменную окружения GROQ_API_KEY.
+
+До v0.9.5 шаблон вызывал Gemini и требовал GOOGLE_API_KEY, которого в CI
+нет: все прогоны падали с auth_error.
 """
 
 DOMAIN = "content"
 AUTONOMY = "advisory"
-MODEL_VERSION = "google/gemini-2.5-flash"  # провайдер/модель, записывается в EvidenceStore.model_version
+MODEL_VERSION = "groq/openai/gpt-oss-20b"  # провайдер/модель, записывается в EvidenceStore.model_version
 FRAMEWORK_PACKAGE = "google-adk"  # имя дистрибутива для importlib.metadata.version()
 PROMPT_VERSION = "task-v2"  # с 0.9.4 задача с проверяемым ответом вместо открытого вопроса
 CI_TIER = "experimental"  # required: падение валит CI; experimental: только в отчёте
@@ -17,12 +18,15 @@ CI_TIER = "experimental"  # required: падение валит CI; experimental
 def run():
     import asyncio
     from google.adk.agents import Agent
+    from google.adk.models.lite_llm import LiteLlm
     from google.adk.runners import InMemoryRunner
     from google.genai import types
 
+    # [v0.9.5] Groq через LiteLLM вместо Gemini: в CI нет GOOGLE_API_KEY, и
+    # все прогоны уходили в auth_error, не давая данных об агенте.
     agent = Agent(
         name="assistant",
-        model="gemini-2.5-flash",
+        model=LiteLlm(model="groq/openai/gpt-oss-20b"),
         instruction="You are a helpful assistant.",
     )
 

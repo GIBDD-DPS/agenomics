@@ -1,4 +1,4 @@
-# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 cli.py. Минимальный командный интерфейс методологии Agenomics.
 
@@ -133,7 +133,7 @@ def cmd_validate(args) -> int:
     Engine). Код выхода 0 при любом вердикте: это отчёт, а не проверка
     качества кода, "insufficient_data" на ранних данных нормален."""
     from dataclasses import asdict
-    from .validation import validate, validate_all_targets, validation_report_text
+    from .validation import evidence_profile_text, validate, validate_all_targets, validation_report_text
 
     if not Path(args.db_path).exists():
         print(f"Ошибка: файл базы не найден: {args.db_path}", file=sys.stderr)
@@ -151,13 +151,19 @@ def cmd_validate(args) -> int:
             reports = {args.target: validate(store, target=args.target, **kwargs)}
         else:
             reports = validate_all_targets(store, **kwargs)
+        profile = store.evidence_profile(args.agent_id)
     finally:
         store.close()
     if args.json:
-        print(json.dumps({t: asdict(r) for t, r in reports.items()}, ensure_ascii=False, indent=2, default=str))
+        # evidence_profile рядом с целями: имя цели с ним не совпадёт.
+        data = {t: asdict(r) for t, r in reports.items()}
+        data["evidence_profile"] = asdict(profile)
+        print(json.dumps(data, ensure_ascii=False, indent=2, default=str))
     elif not reports:
+        print(evidence_profile_text(profile))
         print("Validation Engine: в базе нет предсказаний")
     else:
+        print(evidence_profile_text(profile) + "\n")
         print("\n\n".join(validation_report_text(r) for r in reports.values()))
     return 0
 

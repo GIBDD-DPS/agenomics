@@ -1,4 +1,4 @@
-# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 Шаблон под Swarms (kyegomez/swarms), переведён на Groq (бесплатный
 провайдер, без карты). Требует переменную окружения GROQ_API_KEY.
@@ -26,8 +26,21 @@ def run():
         max_loops=1,
     )
 
-    result = agent.run("Каждую неделю откладывают 150 рублей. Сколько рублей отложат за 12 недель? Ответь одним числом.")
+    # [v0.9.5] Swarms не бросает исключение при ошибке провайдера (нет сети,
+    # 401, 429): после retry_attempts пишет ошибку в лог loguru и
+    # возвращает пустую строку. Без перехвата сбой прогона записывался бы
+    # как неверный ответ агента (task_failure), а не как ошибка выполнения,
+    # и причина (например, rate limit) терялась бы.
+    from loguru import logger
+    errors = []
+    sink = logger.add(lambda message: errors.append(message.record["message"]), level="ERROR")
+    try:
+        result = agent.run("Каждую неделю откладывают 150 рублей. Сколько рублей отложат за 12 недель? Ответь одним числом.")
+    finally:
+        logger.remove(sink)
     print(result)
+    if not str(result or "").strip() and errors:
+        raise RuntimeError(errors[0][:500])
     return result
 
 

@@ -1,4 +1,4 @@
-# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 test_v04_modules.py. Тесты 7 модулей v0.4:
 Drift Monitor, Incident Feedback, Genome Ledger, Genome Matchmaker,

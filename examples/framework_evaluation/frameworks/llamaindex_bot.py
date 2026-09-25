@@ -1,4 +1,4 @@
-# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 Шаблон под LlamaIndex, переведён на Groq (бесплатный провайдер).
 Требует пакет llama-index-llms-groq и переменную окружения GROQ_API_KEY.
@@ -8,6 +8,7 @@ DOMAIN = "content"
 AUTONOMY = "advisory"
 MODEL_VERSION = "groq/openai/gpt-oss-20b"  # провайдер/модель, записывается в EvidenceStore.model_version
 FRAMEWORK_PACKAGE = "llama-index-core"  # имя дистрибутива для importlib.metadata.version()
+PROMPT_VERSION = "task-v1"  # задача с ответом из инструмента, без изменений с v0.9.2
 CI_TIER = "required"  # required: падение валит CI; experimental: только в отчёте
 
 

@@ -1,4 +1,4 @@
-# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 Шаблон под CrewAI, переведён на Groq (бесплатный провайдер, через litellm).
 Требует переменную окружения GROQ_API_KEY.
@@ -18,6 +18,7 @@ MODEL_VERSION = "groq/openai/gpt-oss-20b"  # провайдер/модель, з
 FRAMEWORK_PACKAGE = "crewai"  # имя дистрибутива для importlib.metadata.version()
 PROMPT_VERSION = "task-v2"  # с 0.9.4 задача с проверяемым ответом вместо открытого вопроса
 CI_TIER = "experimental"  # required: падение валит CI; experimental: только в отчёте
+DISABLED = "known_upstream_bug в каждом прогоне CI (внешний баг CrewAI, конфликт pydantic<2.13), 0% надёжности"  # v0.9.5: прогоны не запускаются, история сохраняется
 
 
 def run():

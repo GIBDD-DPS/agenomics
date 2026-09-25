@@ -1,4 +1,4 @@
-# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 Шаблон под Griptape, переведён на Groq (бесплатный провайдер, через
 OpenAI-совместимый эндпоинт api.groq.com). Требует GROQ_API_KEY.
@@ -31,6 +31,13 @@ def run():
 
     agent.run("Прямоугольник имеет стороны 13 и 7. Чему равна его площадь? Ответь одним числом.")
     print("Answer:", agent.output)
+    # [v0.9.5] Griptape не бросает исключение при ошибке провайдера (нет
+    # сети, 401, 429), а кладёт её в ErrorArtifact. Без этой проверки сбой
+    # прогона записывался бы как неверный ответ агента (task_failure), а не
+    # как ошибка выполнения, и не классифицировался бы по причине.
+    from griptape.artifacts import ErrorArtifact
+    if isinstance(agent.output, ErrorArtifact):
+        raise agent.output.exception or RuntimeError(agent.output.value)
     return agent.output
 
 

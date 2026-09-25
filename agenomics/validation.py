@@ -1,4 +1,4 @@
-# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 validation.py. Validation Engine методологии Agenomics.
 
@@ -46,6 +46,15 @@ from .evaluation import _evidence_strength
 # не работал. Такие предсказания исключаются целиком, а не считаются
 # "без инцидента" по остальным донорам.
 DEFAULT_EXCLUDED_OUTCOME_TYPES = ("infrastructure_error",)
+
+# [v0.9.5] Цели, которые больше не создаются, но остаются в накопленных
+# базах. Отчёт по ним строится (данные есть), но помечается и идёт после
+# основных целей: общая цель "был ли инцидент" смешивает разные события и
+# не сравнима с раздельными целями.
+LEGACY_TARGETS = {
+    "incident_in_run": "общая цель до v0.9.2; с v0.9.2 вместо неё runtime_failure, "
+                       "security_incident и task_failure, новые предсказания под неё не создаются",
+}
 
 VERDICTS = (
     "insufficient_data",
@@ -134,6 +143,8 @@ class ValidationReport:
     expected_calibration_error: Optional[float] = None
     agent_level_spearman: Optional[float] = None
     holdout: Optional[HoldoutResult] = None
+    # [v0.9.5] Пояснение, если цель устаревшая (LEGACY_TARGETS), иначе None.
+    legacy_note: Optional[str] = None
 
 
 # --- Сборка пар ------------------------------------------------------------
@@ -214,8 +225,10 @@ def build_pairs(
 
 
 def prediction_targets(store) -> List[str]:
-    """Все цели предсказаний в базе, по алфавиту."""
-    return [r[0] for r in store._conn.execute("SELECT DISTINCT target FROM predictions ORDER BY target")]
+    """Все цели предсказаний в базе: основные по алфавиту, затем устаревшие
+    (LEGACY_TARGETS)."""
+    targets = [r[0] for r in store._conn.execute("SELECT DISTINCT target FROM predictions ORDER BY target")]
+    return [t for t in targets if t not in LEGACY_TARGETS] + [t for t in targets if t in LEGACY_TARGETS]
 
 
 # --- Метрики -----------------------------------------------------------------
@@ -518,6 +531,7 @@ def validate(
         independence_groups=sorted({g for p in pairs for g in p.independence_groups}),
         n_verified_pairs=sum(1 for p in pairs if p.verified),
         n_rejected_outcomes=n_rejected,
+        legacy_note=LEGACY_TARGETS.get(target),
     )
 
     if pairs:
@@ -572,12 +586,31 @@ def _verdict(report: ValidationReport, min_test_pairs: int, min_class_count: int
     )
 
 
+def evidence_profile_text(profile) -> str:
+    """[v0.9.5] Шапка отчёта: объём и качество данных во всей базе, до
+    вердиктов по целям. Без неё по отчёту не видно, на чём он построен."""
+    quality = ", ".join(f"{level} {n}" for level, n in profile.evidence_by_quality.items())
+    return "\n".join([
+        f"База: наблюдений {profile.n_observations}, агентов {profile.n_agents}, "
+        f"конфигураций {profile.n_genomes}",
+        f"  Предсказаний {profile.n_predictions}, с исходом {profile.n_predictions_with_outcome}, "
+        f"подтверждённых человеком/реальностью исходов {profile.n_verified_outcomes}",
+        f"  Доказательств {profile.n_evidence} ({quality}), доноров {profile.n_donors}, "
+        f"групп независимости {profile.n_independence_groups}",
+    ])
+
+
 def validation_report_text(report: ValidationReport) -> str:
     o, h = report.overall, report.holdout
     target = report.filters.get("target")
     lines = [
-        f"Validation Engine{f' [{target}]' if target else ''}: {report.verdict}",
+        f"Validation Engine{f' [{target}]' if target else ''}: {report.verdict}"
+        + (" (устаревшая цель)" if report.legacy_note else ""),
         f"  {report.detail}",
+    ]
+    if report.legacy_note:
+        lines.append(f"  Устаревшая цель: {report.legacy_note}")
+    lines += [
         f"  Пары: {report.n_pairs} (с событием {report.n_positive}), агентов {report.n_agents}, "
         f"конфигураций {report.n_configurations}, уровень '{report.evidence_strength}'",
         f"  Независимость: доноров {report.n_donors}, групп {report.n_independence_groups} "

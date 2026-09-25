@@ -1,4 +1,4 @@
-# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 Шаблон под BeeAI Framework (IBM Research, Linux Foundation AI),
 переведён на Groq (бесплатный провайдер). BeeAI делегирует вызовы

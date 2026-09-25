@@ -1,4 +1,4 @@
-# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 test_version_consistency.py. Регрессионный тест на реальный найденный
 баг: agenomics/api.py не обновлялась с версии 0.3.0 несколько релизов
