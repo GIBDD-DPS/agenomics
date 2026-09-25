@@ -1,4 +1,4 @@
-# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 evidence_graph.py. Доноры, доказательства, предсказания и исходы (AEP-001 v1.1).
 

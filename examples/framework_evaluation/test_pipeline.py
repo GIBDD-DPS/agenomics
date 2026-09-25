@@ -1,7 +1,8 @@
-# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """Тесты полного пайплайна capture_log_v2 -> genome_from_capture -> EvidenceStore."""
 
 import sys
+from pathlib import Path
 sys.path.insert(0, ".")
 
 from agenomics import EvidenceStore
@@ -206,6 +207,83 @@ def test_runner_passes_model_version_from_template():
     assert discovered["google_adk_bot"]["model_version"] == "google/gemini-2.5-flash"
     assert discovered["langchain_bot"]["prompt_version"] is None
 
+
+
+
+# --- Задачи с проверяемым ответом (v0.9.4) ------------------------------
+
+def _check_answer(source: str) -> str:
+    import re
+    return re.search(r"\(\?<!\\d\)(\d+)\(\?!\\d\)", source).group(1)
+
+
+def test_every_framework_template_has_check():
+    """С 0.9.4 у каждого шаблона задача с однозначным ответом и check():
+    без него task_failure у агента не измеряется вовсе."""
+    missing = [p.name for p in _framework_templates() if "\ndef check(result)" not in p.read_text(encoding="utf-8")]
+    assert not missing, f"нет check(): {missing}"
+
+
+def test_task_answer_is_not_in_task_text():
+    """Ответ не должен стоять в условии: иначе check() пройдёт, если агент
+    просто повторит вопрос (swarms, например, может вернуть всю историю
+    диалога вместе с текстом задачи)."""
+    import ast
+    import re
+    leaked = []
+    for p in _framework_templates():
+        source = p.read_text(encoding="utf-8")
+        if "Ответь одним числом" not in source:
+            continue
+        answer = _check_answer(source)
+        tasks = [n.value for n in ast.walk(ast.parse(source))
+                 if isinstance(n, ast.Constant) and isinstance(n.value, str) and "Ответь одним числом" in n.value]
+        assert tasks, p.name
+        if any(re.search(rf"(?<!\d){answer}(?!\d)", t) for t in tasks):
+            leaked.append(p.name)
+    assert not leaked, f"ответ есть в условии задачи: {leaked}"
+
+
+def test_checks_read_final_answer_of_each_framework():
+    """check() каждого шаблона на результате той формы, которую возвращает
+    его фреймворк: правильный ответ (в том числе с разрядами "1 800"),
+    неправильный и пустой."""
+    from types import SimpleNamespace as NS
+    from run_all_frameworks import discover_frameworks
+
+    shapes = {
+        "agno_bot": lambda t: NS(content=t),
+        "atomic_agents_bot": lambda t: NS(chat_message=t),
+        "autogen_bot": lambda t: NS(summary=None, messages=[{"role": "user", "content": "q"}, {"content": t}]),
+        "beeai_bot": lambda t: NS(result=NS(text=t)),
+        "camel_bot": lambda t: NS(msgs=[NS(content=t)]),
+        "crewai_bot": lambda t: NS(raw=t),
+        "google_adk_bot": lambda t: [NS(content=NS(parts=[NS(text="думаю")])), NS(content=None),
+                                     NS(content=NS(parts=[NS(text=t)]))],
+        "griptape_bot": lambda t: NS(value=t),
+        "haystack_bot": lambda t: {"last_message": NS(text=t), "messages": []},
+        "langgraph_bot": lambda t: {"messages": [NS(content="q"), NS(content=t)]},
+        "openai_agents_bot": lambda t: NS(final_output=t),
+        "pydantic_ai_bot": lambda t: NS(output=t),
+        "semantic_kernel_bot": lambda t: NS(content=t),
+        "swarms_bot": lambda t: t,
+        "txtai_bot": lambda t: t,
+    }
+    discovered = discover_frameworks()
+    for name, shape in shapes.items():
+        check = discovered[name]["check"]
+        answer = _check_answer((Path(__file__).resolve().parent / "frameworks" / f"{name}.py").read_text(encoding="utf-8"))
+        spaced = f"{answer[:-3]} {answer[-3:]}" if len(answer) > 3 else answer
+        assert check(shape(f"Ответ: **{spaced}**.")), name
+        assert not check(shape(f"Ответ: {int(answer) + 1}")), name
+        assert not check(shape(f"{answer}0")), name
+        assert not check(shape("")), name  # пустой ответ агента это провал задачи
+        try:
+            check(object())
+        except (ValueError, AttributeError, TypeError, KeyError, IndexError):
+            pass  # чужая форма результата: исход неизвестен (check_error), а не провал
+        else:
+            assert name in ("swarms_bot", "txtai_bot", "semantic_kernel_bot", "griptape_bot"), name
 
 
 # --- Score до прогона, без target leakage (v0.7.12) ---------------------
@@ -648,10 +726,10 @@ def test_broken_check_is_unknown_not_failure():
     store.close()
 
 
-def test_templates_with_check_are_the_four_deterministic_ones():
+def test_runner_discovers_check_for_every_template():
     from run_all_frameworks import discover_frameworks
-    with_check = sorted(n for n, cfg in discover_frameworks().items() if cfg["check"] is not None)
-    assert with_check == ["dspy_bot", "langchain_bot", "llamaindex_bot", "smolagents_bot"]
+    without_check = sorted(n for n, cfg in discover_frameworks().items() if cfg["check"] is None)
+    assert without_check == []
 
 
 def test_template_checks_read_final_answer_not_tool_output():

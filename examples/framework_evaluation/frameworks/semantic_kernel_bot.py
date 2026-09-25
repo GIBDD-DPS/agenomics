@@ -1,4 +1,4 @@
-# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 Шаблон под Semantic Kernel, переведён на Groq (бесплатный провайдер,
 через OpenAI-совместимый эндпоинт, тот же приём, что для Haystack/
@@ -11,6 +11,7 @@ DOMAIN = "content"
 AUTONOMY = "advisory"
 MODEL_VERSION = "groq/openai/gpt-oss-20b"  # провайдер/модель, записывается в EvidenceStore.model_version
 FRAMEWORK_PACKAGE = "semantic-kernel"  # имя дистрибутива для importlib.metadata.version()
+PROMPT_VERSION = "task-v2"  # с 0.9.4 задача с проверяемым ответом вместо открытого вопроса
 CI_TIER = "required"  # required: падение валит CI; experimental: только в отчёте
 
 
@@ -40,9 +41,19 @@ def run():
             instructions="You are a helpful assistant.",
         )
 
-        response = await agent.get_response(messages="Что такое Semantic Kernel?")  # замените на вашу задачу
+        response = await agent.get_response(messages="Сколько дней в сумме в январе, феврале и марте невисокосного года? Ответь одним числом.")
         return response
 
     result = asyncio.run(_run())
     print(result)
     return result
+
+
+def check(result) -> bool:
+    """Задача с однозначным ответом: 31 + 28 + 31 = 90. Проверяется содержимое ответа агента (response.content)."""
+    import re
+    text = getattr(result, "content", result)
+    if text is None:  # форма результата не та, что ожидалась: исход неизвестен, а не провал агента
+        raise ValueError(f"неожиданная форма результата: {type(result).__name__}")
+    text = re.sub(r"(?<=\d)[\s\u00a0\u202f,.](?=\d{3}(?!\d))", "", str(text or ""))  # 1 800, 1,800 -> 1800
+    return re.search(r"(?<!\d)90(?!\d)", text) is not None

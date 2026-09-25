@@ -1,4 +1,4 @@
-# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 Шаблон под Atomic Agents, переведён на Groq (бесплатный провайдер, через
 instructor.from_groq()). Требует пакет groq и переменную GROQ_API_KEY.
@@ -18,6 +18,7 @@ DOMAIN = "content"
 AUTONOMY = "advisory"
 MODEL_VERSION = "groq/openai/gpt-oss-20b"  # провайдер/модель, записывается в EvidenceStore.model_version
 FRAMEWORK_PACKAGE = "atomic-agents"  # имя дистрибутива для importlib.metadata.version()
+PROMPT_VERSION = "task-v2"  # с 0.9.4 задача с проверяемым ответом вместо открытого вопроса
 CI_TIER = "experimental"  # required: падение валит CI; experimental: только в отчёте
 
 
@@ -47,6 +48,16 @@ def run():
         )
     )
 
-    response = agent.run(BasicChatInputSchema(chat_message="Что такое Atomic Agents?"))
+    response = agent.run(BasicChatInputSchema(chat_message="У Ивана 3 пачки по 12 тетрадей. Он раздал 7 тетрадей. Сколько тетрадей у него осталось? Ответь одним числом."))
     print(response.chat_message)
     return response
+
+
+def check(result) -> bool:
+    """Задача с однозначным ответом: 3 * 12 - 7 = 29. Проверяется поле chat_message ответа."""
+    import re
+    text = getattr(result, "chat_message", None)
+    if text is None:  # форма результата не та, что ожидалась: исход неизвестен, а не провал агента
+        raise ValueError(f"неожиданная форма результата: {type(result).__name__}")
+    text = re.sub(r"(?<=\d)[\s\u00a0\u202f,.](?=\d{3}(?!\d))", "", str(text or ""))  # 1 800, 1,800 -> 1800
+    return re.search(r"(?<!\d)29(?!\d)", text) is not None

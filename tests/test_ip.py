@@ -1,4 +1,4 @@
-# Agenomics 0.9.3 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.4 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 test_ip.py. Авторство и происхождение: строка авторства в каждом .py,
 реестр компонентов, NOTICE, целостность манифестов релизов.
