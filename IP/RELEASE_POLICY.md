@@ -19,6 +19,8 @@
 6. В CREATION_RECORD дописывается строка версии.
 7. Пакет публикуется на PyPI и сверяется с манифестом:
    `python scripts/release_manifest.py --verify-wheel dist/agenomics-X.Y.Z-py3-none-any.whl`.
+   Пакет собирается из checkout тега, где манифеста ещё нет: скрипт берёт
+   его из `origin/main` (перед этим `git fetch origin`).
 
 Хэши считаются по содержимому с окончаниями строк LF: сборка пакета на
 Windows даёт CRLF, код при этом тот же, и сверка не должна зависеть от

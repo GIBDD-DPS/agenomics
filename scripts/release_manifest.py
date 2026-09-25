@@ -107,10 +107,27 @@ def verify(ref: str) -> int:
     return 0
 
 
+# Манифест добавляется в main после тега, поэтому в checkout тега его ещё
+# нет: сборка пакета идёт как раз оттуда. Тогда он берётся из main.
+MANIFEST_REFS = ("origin/main", "main")
+
+
+def load_manifest(version: str) -> dict:
+    rel = f"release/v{version}/SOURCE_MANIFEST.json"
+    if (ROOT / rel).exists():
+        return json.loads((ROOT / rel).read_text(encoding="utf-8"))
+    for ref in MANIFEST_REFS:
+        found = subprocess.run(["git", "show", f"{ref}:{rel}"], cwd=ROOT, capture_output=True)
+        if found.returncode == 0:
+            return json.loads(found.stdout)
+    raise SystemExit(f"Нет {rel} ни в рабочей копии, ни в {', '.join(MANIFEST_REFS)}. "
+                     f"Сначала: git fetch origin")
+
+
 def verify_wheel(wheel: str) -> int:
     with zipfile.ZipFile(wheel) as zf:
         dist_version = re.search(r"-(\d+\.\d+\.\d+)-", Path(wheel).name).group(1)
-        manifest = json.loads((ROOT / "release" / f"v{dist_version}" / "SOURCE_MANIFEST.json").read_text(encoding="utf-8"))
+        manifest = load_manifest(dist_version)
         expected = {f["path"]: f["sha256"] for f in manifest["files"] if f["path"].startswith("agenomics/")}
         actual = {n: sha256_lf(zf.read(n)) for n in zf.namelist() if n.startswith("agenomics/") and n.endswith(".py")}
     mismatched = sorted(p for p in expected if actual.get(p) != expected[p])
