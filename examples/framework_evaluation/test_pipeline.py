@@ -223,7 +223,7 @@ def test_disabled_templates_are_not_run_but_reported():
     enabled = discover_frameworks()
     everything = discover_frameworks(include_disabled=True)
     disabled = {n: c["disabled"] for n, c in everything.items() if c["disabled"]}
-    assert set(disabled) == {"atomic_agents_bot", "crewai_bot", "txtai_bot"}
+    assert set(disabled) == {"atomic_agents_bot", "crewai_bot", "smolagents_bot", "txtai_bot"}
     assert all(reason.strip() for reason in disabled.values())
     assert not set(disabled) & set(enabled)
     assert len(enabled) == len(everything) - len(disabled) >= 19
@@ -293,6 +293,7 @@ def test_checks_read_final_answer_of_each_framework():
         "strands_agents_bot": lambda t: NS(message={"role": "assistant", "content": [{"text": t}]}),
         "deepagents_bot": lambda t: {"messages": [NS(content="q"), NS(content=t)]},
         "agent_framework_bot": lambda t: NS(text=t),
+        "mirascope_bot": lambda t: NS(text=lambda: t),
     }
     discovered = discover_frameworks(include_disabled=True)
     for name, shape in shapes.items():
@@ -792,7 +793,7 @@ def test_template_checks_read_final_answer_not_tool_output():
     сообщений; проверка по всему результату прошла бы при любом ответе."""
     from types import SimpleNamespace as M
     from run_all_frameworks import discover_frameworks
-    checks = {n: cfg["check"] for n, cfg in discover_frameworks().items() if cfg["check"]}
+    checks = {n: cfg["check"] for n, cfg in discover_frameworks(include_disabled=True).items() if cfg["check"]}
     tool_then_wrong = {"messages": [M(content="q"), M(content="It's always sunny in SF!"), M(content="Не знаю.")]}
     tool_then_right = {"messages": [M(content="q"), M(content="It's always sunny in SF!"), M(content="Солнечно.")]}
     assert checks["langchain_bot"](tool_then_wrong) is False

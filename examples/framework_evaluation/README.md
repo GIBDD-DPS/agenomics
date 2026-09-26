@@ -61,19 +61,22 @@ and variables → Actions.
 
 **Активные (19):** LangChain, AG2 (AutoGen), LlamaIndex, LangGraph,
 Haystack, CAMEL-AI, Griptape, Agno, Pydantic AI, DSPy, Swarms, Semantic
-Kernel, OpenAI Agents SDK, BeeAI, smolagents, Google ADK; с v0.9.5 также
-Strands Agents (AWS), Deep Agents (LangChain) и Microsoft Agent Framework.
+Kernel, OpenAI Agents SDK, BeeAI, Google ADK; с v0.9.5 также Strands
+Agents (AWS), Deep Agents (LangChain) и Microsoft Agent Framework; после
+v0.9.5 Mirascope вместо smolagents.
 
-**Выключены (`DISABLED`, v0.9.5):** Atomic Agents (import_error в каждом
+**Выключены (`DISABLED`):** Atomic Agents (import_error в каждом
 прогоне), CrewAI (внешний баг и конфликт pydantic), txtai (rate_limit
-почти в каждом прогоне). Файлы и накопленная история остаются, раннер их
+почти в каждом прогоне), с v0.9.5; smolagents после v0.9.5
+(`AgentGenerationError` при каждом обращении к Groq в первых двух
+прогонах на Groq). Файлы и накопленная история остаются, раннер их
 не запускает и перечисляет в начале отчёта с причиной. Включить обратно:
 удалить строку `DISABLED` в шаблоне и вернуть установку библиотеки в
 `framework_eval.yml`.
 
 **Переведены на Groq (v0.9.5):** smolagents (раньше Hugging Face
-Inference, нужен был `HF_TOKEN`) и Google ADK (раньше Gemini, нужен был
-`GOOGLE_API_KEY`). Этих ключей в CI не было, и все их прогоны уходили в
+Inference, нужен был `HF_TOKEN`; на Groq тоже не заработал и выключен) и
+Google ADK (раньше Gemini, нужен был `GOOGLE_API_KEY`). Этих ключей в CI не было, и все их прогоны уходили в
 `infrastructure_error`, не давая данных об агенте. Смена модели видна в
 `model_version`.
 
