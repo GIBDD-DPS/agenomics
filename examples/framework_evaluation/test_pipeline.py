@@ -537,6 +537,20 @@ def test_required_failure_fails_ci_experimental_does_not():
     assert "a [rate_limit]" in report
 
 
+def test_summary_shows_error_reason_and_check_errors_without_keys():
+    """[v0.9.5] В логе CI причина падения видна рядом с классом, а
+    похожее на ключ в тексте ошибки заменяется."""
+    from run_all_frameworks import summarize
+    report, _ = summarize([
+        _result("a", "experimental", "error", error_class="other",
+                error_summary="BadRequestError: invalid key gsk_abcdefghijklmnop\ntraceback line"),
+        _result("b", "required", "success", task_check_error="ValueError: неожиданная форма результата: dict"),
+    ])
+    assert "a [other]: BadRequestError: invalid key gsk_***" in report
+    assert "abcdefghijklmnop" not in report and "traceback line" not in report
+    assert "b: проверка ответа не выполнилась (исход неизвестен): ValueError" in report
+
+
 def test_summary_reports_model_mismatch_and_unobserved():
     from run_all_frameworks import summarize
     report, _ = summarize([

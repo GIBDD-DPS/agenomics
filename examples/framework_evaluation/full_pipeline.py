@@ -484,6 +484,8 @@ def run_framework_and_record(
         "label": result.label, "confidence": result.confidence,
         "leaked_secrets": leaked_secret_types,
         "error_class": error_class,
+        "error_summary": error_summary,
+        "task_check_error": task_check_error,
         "framework_version": framework_version,
         "observed_model_version": observed_model_version,
         "model_match": model_match,

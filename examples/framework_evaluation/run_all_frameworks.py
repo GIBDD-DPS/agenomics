@@ -34,6 +34,7 @@ CI_TIER = "required", иначе 0. Падения experimental-фреймвор
 """
 
 import importlib.util
+import re
 import sys
 from pathlib import Path
 
@@ -44,6 +45,16 @@ from full_pipeline import run_framework_and_record
 FRAMEWORKS_DIR = Path(__file__).parent / "frameworks"
 DB_PATH = Path(__file__).parent / "frameworks_evidence.db"
 CI_TIERS = ("required", "experimental")
+
+
+_KEY_LIKE = re.compile(r"\b(gsk_|sk-|hf_|AIza)[A-Za-z0-9_\-]{8,}")
+
+
+def _short_error(text, limit: int = 200) -> str:
+    """[v0.9.5] Текст ошибки для лога CI: первая строка, без похожего на
+    ключ (GitHub маскирует секреты сам, это вторая линия защиты)."""
+    first = str(text or "").strip().splitlines()[0] if str(text or "").strip() else ""
+    return _KEY_LIKE.sub(lambda m: m.group(1) + "***", first)[:limit]
 
 
 def summarize(results: list) -> tuple:
@@ -57,7 +68,14 @@ def summarize(results: list) -> tuple:
         failed = [r for r in tier_results if r["status"] == "error"]
         lines.append(f"{tier.upper()}: {len(tier_results) - len(failed)}/{len(tier_results)} прошли")
         for r in failed:
-            lines.append(f"  ❌ {r['framework']} [{r.get('error_class') or 'other'}]")
+            # [v0.9.5] Причина рядом с классом: без неё "other" в логе CI
+            # ничего не говорит, а текст ошибки был только в базе.
+            reason = _short_error(r.get("error_summary"))
+            lines.append(f"  ❌ {r['framework']} [{r.get('error_class') or 'other'}]" + (f": {reason}" if reason else ""))
+    check_errors = [r for r in results if r.get("task_check_error")]
+    for r in check_errors:
+        lines.append(f"⚠️ {r['framework']}: проверка ответа не выполнилась (исход неизвестен): "
+                     f"{_short_error(r['task_check_error'])}")
     mismatched = [r for r in results if r.get("model_match") is False]
     for r in mismatched:
         lines.append(f"⚠️ {r['framework']}: заявлена модель {r['model_version']}, "
