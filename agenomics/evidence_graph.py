@@ -175,6 +175,12 @@ class EvidenceProfile:
     n_predictions: int
     n_predictions_with_outcome: int
     n_verified_outcomes: int  # verification = human или ground_truth
+    # [после v0.9.5] Среди наблюдений, у которых есть предсказания: одно наблюдение
+    # (прогон) даёт по предсказанию на каждую цель, поэтому число
+    # предсказаний не равно числу независимых прогонов.
+    n_predicted_observations: int = 0
+    n_predicted_agents: int = 0
+    n_predicted_genomes: int = 0
 
 
 def _now() -> datetime:
@@ -420,6 +426,12 @@ class EvidenceGraphMixin:
             by_quality[e.quality_level] += 1
 
         predictions = self.get_predictions(agent_id)
+        pred_filter = "WHERE p.agent_id = ?" if agent_id is not None else ""
+        n_pred_obs, n_pred_agents, n_pred_genomes = self._conn.execute(
+            "SELECT COUNT(DISTINCT p.observation_id), COUNT(DISTINCT p.agent_id), COUNT(DISTINCT o.genome_hash) "
+            f"FROM predictions p JOIN observations o ON o.id = p.observation_id {pred_filter}",
+            params,
+        ).fetchone()
         return EvidenceProfile(
             agent_id=agent_id,
             n_observations=n_obs,
@@ -435,6 +447,9 @@ class EvidenceGraphMixin:
             n_verified_outcomes=sum(
                 1 for p in predictions for o in p.outcomes if o.verification in ("human", "ground_truth")
             ),
+            n_predicted_observations=n_pred_obs,
+            n_predicted_agents=n_pred_agents,
+            n_predicted_genomes=n_pred_genomes,
         )
 
     def export_evidence_graph_json(self, path: str) -> str:

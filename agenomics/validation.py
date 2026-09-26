@@ -162,12 +162,21 @@ def _collect_pairs(
     independence_groups: Optional[Sequence[str]],
     verification: Optional[Sequence[str]],
     agent_id: Optional[str],
+    trust_model_versions: Optional[Sequence[str]] = None,
 ) -> Tuple[List[ValidationPair], int]:
-    genome_by_obs = dict(store._conn.execute("SELECT id, genome_hash FROM observations").fetchall())
+    genome_by_obs, version_by_obs = {}, {}
+    for obs_id, genome_hash, version in store._conn.execute(
+        "SELECT id, genome_hash, trust_model_version FROM observations"
+    ):
+        genome_by_obs[obs_id], version_by_obs[obs_id] = genome_hash, version
     pairs: List[ValidationPair] = []
     n_rejected = 0
     for p in store.get_predictions(agent_id):
         if target is not None and p.target != target:
+            continue
+        # [после v0.9.5] Когорта по версии модели доверия: база накопительная, и
+        # прогоны разных версий Trust Score проверяются по отдельности.
+        if trust_model_versions is not None and version_by_obs.get(p.observation_id) not in trust_model_versions:
             continue
         frozen = _parse_time(p.frozen_at)
         # [v0.9.2] Повторная проверка порядка времени. record_outcome() уже
@@ -481,6 +490,7 @@ def validate(
     independence_groups: Optional[Sequence[str]] = None,
     verification: Optional[Sequence[str]] = None,
     agent_id: Optional[str] = None,
+    trust_model_versions: Optional[Sequence[str]] = None,
     calibration_fraction: float = 0.6,
     min_test_pairs: int = 30,
     min_class_count: int = 5,
@@ -494,6 +504,7 @@ def validate(
         "exclude_outcome_types": list(exclude_outcome_types),
         "independence_groups": list(independence_groups) if independence_groups else None,
         "verification": list(verification) if verification else None, "agent_id": agent_id,
+        "trust_model_versions": list(trust_model_versions) if trust_model_versions else None,
     }
     if target is None:
         targets = prediction_targets(store)
@@ -506,6 +517,7 @@ def validate(
             )
     pairs, n_rejected = _collect_pairs(
         store, target, outcome_types, exclude_outcome_types, independence_groups, verification, agent_id,
+        trust_model_versions,
     )
     labels = [p.occurred for p in pairs]
     risks = [p.risk for p in pairs]
@@ -586,18 +598,36 @@ def _verdict(report: ValidationReport, min_test_pairs: int, min_class_count: int
     )
 
 
-def evidence_profile_text(profile) -> str:
-    """[v0.9.5] Шапка отчёта: объём и качество данных во всей базе, до
-    вердиктов по целям. Без неё по отчёту не видно, на чём он построен."""
+def evidence_profile_text(profile, reports: Optional[Dict[str, "ValidationReport"]] = None) -> str:
+    """Шапка отчёта: объём и качество данных до вердиктов по целям. Без
+    неё по отчёту не видно, на чём он построен.
+
+    [после v0.9.5] Уровни N раздельно: предсказания, наблюдения (прогоны) с
+    предсказаниями, агенты, конфигурации. Одно наблюдение даёт по
+    предсказанию на каждую цель, поэтому предсказаний больше, чем
+    независимых прогонов. С reports добавляется число событий по целям."""
     quality = ", ".join(f"{level} {n}" for level, n in profile.evidence_by_quality.items())
-    return "\n".join([
+    lines = [
         f"База: наблюдений {profile.n_observations}, агентов {profile.n_agents}, "
-        f"конфигураций {profile.n_genomes}",
-        f"  Предсказаний {profile.n_predictions}, с исходом {profile.n_predictions_with_outcome}, "
+        f"genome_hash {profile.n_genomes} (включая хэши до v0.9.0, менявшиеся почти каждый прогон)",
+        f"  С предсказаниями: наблюдений (прогонов) {profile.n_predicted_observations}, "
+        f"агентов {profile.n_predicted_agents}, конфигураций {profile.n_predicted_genomes}; "
+        f"предсказаний {profile.n_predictions} (по одному на цель), с исходом {profile.n_predictions_with_outcome}, "
         f"подтверждённых человеком/реальностью исходов {profile.n_verified_outcomes}",
         f"  Доказательств {profile.n_evidence} ({quality}), доноров {profile.n_donors}, "
         f"групп независимости {profile.n_independence_groups}",
-    ])
+    ]
+    if reports:
+        events = ", ".join(
+            f"{target} {r.n_positive} из {r.n_pairs}" + (" (устаревшая)" if r.legacy_note else "")
+            for target, r in reports.items()
+        )
+        lines.append(f"  Событий по целям (после исключения сбоев окружения): {events}")
+        versions = next(iter(reports.values())).filters.get("trust_model_versions")
+        if versions:
+            lines.append(f"  Цели проверяются только по trust_model_version {', '.join(versions)}; "
+                         f"строки выше описывают всю базу")
+    return "\n".join(lines)
 
 
 def validation_report_text(report: ValidationReport) -> str:

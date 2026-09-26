@@ -43,7 +43,6 @@ jobs:
           pip install agno groq
           pip install pydantic-ai
           pip install dspy
-          pip install "smolagents[litellm]"
           pip install google-adk litellm
           pip install swarms
           pip install semantic-kernel
@@ -58,6 +57,7 @@ jobs:
           pip install "strands-agents[litellm]" "opentelemetry-api<=1.42.1" "opentelemetry-sdk<=1.42.1"
           pip install deepagents
           pip install agent-framework-core agent-framework-openai
+          pip install "mirascope[openai]"  # вместо smolagents (выключен): ставит один пакет, соседей не трогает
           pip install requests
         continue-on-error: true
 

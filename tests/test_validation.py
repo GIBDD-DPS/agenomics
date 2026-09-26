@@ -374,3 +374,40 @@ def test_cli_prints_evidence_profile_before_reports():
         data = json.loads(out.getvalue())
         assert data["evidence_profile"]["evidence_by_quality"]["Q1"] == 1
         assert "runtime_failure" in data
+
+
+# --- после v0.9.5: когорты по версии модели, уровни N в шапке ----------------------
+
+def test_trust_model_version_filter_selects_cohort():
+    store = _store()
+    for i, version in enumerate(["0.9.3", "0.9.3", "0.9.5"]):
+        obs_id = store.record_observation(f"a{i}", 40.0 + i, "Conditional", trust_model_version=version)
+        pred = store.record_prediction(obs_id, "runtime_failure", frozen_at=T0 + timedelta(hours=i))
+        store.record_outcome(pred, "runtime", "execution_error", i == 0,
+                             observed_at=T0 + timedelta(hours=i, minutes=1))
+    assert validate(store, target="runtime_failure").n_pairs == 3
+    only_093 = validate(store, target="runtime_failure", trust_model_versions=["0.9.3"])
+    assert only_093.n_pairs == 2 and only_093.n_positive == 1
+    assert only_093.filters["trust_model_versions"] == ["0.9.3"]
+    assert validate(store, target="runtime_failure", trust_model_versions=["0.9.9"]).n_pairs == 0
+
+
+def test_header_separates_predictions_observations_and_events():
+    from agenomics import validate_all_targets
+    from agenomics.validation import evidence_profile_text
+    store = _store()
+    for i in range(2):
+        obs_id = store.record_observation("a", 50.0, "Conditional", genome_hash="cfg", trust_model_version="0.9.5")
+        for target, donor, outcome_type in (("runtime_failure", "runtime", "execution_error"),
+                                            ("security_incident", "scanner", "secret_leak")):
+            pred = store.record_prediction(obs_id, target, frozen_at=T0 + timedelta(hours=i))
+            store.record_outcome(pred, donor, outcome_type, i == 1 and target == "security_incident",
+                                 observed_at=T0 + timedelta(hours=i, minutes=1))
+    profile = store.evidence_profile()
+    assert (profile.n_predictions, profile.n_predicted_observations, profile.n_predicted_agents,
+            profile.n_predicted_genomes) == (4, 2, 1, 1)
+    reports = validate_all_targets(store, trust_model_versions=["0.9.5"])
+    text = evidence_profile_text(profile, reports)
+    assert "С предсказаниями: наблюдений (прогонов) 2, агентов 1, конфигураций 1; предсказаний 4" in text
+    assert "runtime_failure 0 из 2, security_incident 1 из 2" in text
+    assert "только по trust_model_version 0.9.5" in text

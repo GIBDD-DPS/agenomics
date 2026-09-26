@@ -13,6 +13,7 @@ MODEL_VERSION = "groq/openai/gpt-oss-20b"  # провайдер/модель, з
 FRAMEWORK_PACKAGE = "smolagents"  # имя дистрибутива для importlib.metadata.version()
 PROMPT_VERSION = "task-v1"  # задача не менялась с v0.9.2: сумма 1..10
 CI_TIER = "experimental"  # required: падение валит CI; experimental: только в отчёте
+DISABLED = "AgentGenerationError при каждом обращении к Groq (прогоны 36216022825, 36222182761), данных об агенте не даёт"  # прогоны не запускаются, история сохраняется
 
 
 def run():
