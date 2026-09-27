@@ -1,4 +1,4 @@
-# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.6 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 Шаблон под txtai (NeuML), переведён на Groq (бесплатный провайдер, через
 litellm-стиль строки модели, унаследованный от smolagents под капотом).

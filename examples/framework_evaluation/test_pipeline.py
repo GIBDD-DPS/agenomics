@@ -1,4 +1,4 @@
-# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.6 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """Тесты полного пайплайна capture_log_v2 -> genome_from_capture -> EvidenceStore."""
 
 import sys
@@ -825,6 +825,33 @@ def test_runtime_reliability_in_summary():
     store = EvidenceStore(":memory:")
     _run(store)
     assert _run(store, run_fn=_raise(ModuleNotFoundError("No module named 'x'")))["runtime_reliability"] == 0.5
+    store.close()
+
+
+
+# --- v0.9.6: снимок предсказания, класс и качество исходов ---------------------
+
+def test_run_writes_snapshot_and_classified_outcomes():
+    store = EvidenceStore(":memory:")
+    _run(store, run_fn=lambda: 55, check_fn=lambda r: r == 55, prompt_version="task-v1", model_version="groq/m")
+    predictions = store.get_predictions("fw")
+    assert {p.snapshot["task_version"] for p in predictions} == {"task-v1"}
+    assert all(p.snapshot["environment_id"].startswith(("local/", "github-actions/")) for p in predictions)
+    assert all(p.snapshot["model_version"] == "groq/m" for p in predictions)
+    classes = {p.target: [(o.outcome_class, o.quality_level) for o in p.outcomes] for p in predictions}
+    assert classes == {"runtime_failure": [("RUNTIME", "Q1")], "security_incident": [("SECURITY", "Q2")],
+                       "task_failure": [("TASK", "Q3")]}
+    assert store.verify_prediction_integrity()["violations"] == []
+    assert store.evidence_profile().n_outcomes_without_class == 0
+    store.close()
+
+
+def test_infrastructure_outcome_keeps_error_class():
+    store = EvidenceStore(":memory:")
+    _run(store, run_fn=_raise(ModuleNotFoundError("No module named 'x'")), check_fn=lambda r: True)
+    outcomes = [o for p in store.get_predictions("fw") for o in p.outcomes]
+    assert {(o.outcome_type, o.outcome_class) for o in outcomes} == {("infrastructure_error", "INFRASTRUCTURE")}
+    assert all(o.details == "error_class=import_error" for o in outcomes)
     store.close()
 
 

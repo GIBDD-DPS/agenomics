@@ -1,4 +1,4 @@
-# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.6 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 test_validation.py. Тесты Validation Engine (v0.9.1).
 
@@ -376,7 +376,7 @@ def test_cli_prints_evidence_profile_before_reports():
         assert "runtime_failure" in data
 
 
-# --- после v0.9.5: когорты по версии модели, уровни N в шапке ----------------------
+# --- v0.9.6: когорты по версии модели, уровни N в шапке ----------------------
 
 def test_trust_model_version_filter_selects_cohort():
     store = _store()
@@ -411,3 +411,129 @@ def test_header_separates_predictions_observations_and_events():
     assert "С предсказаниями: наблюдений (прогонов) 2, агентов 1, конфигураций 1; предсказаний 4" in text
     assert "runtime_failure 0 из 2, security_incident 1 из 2" in text
     assert "только по trust_model_version 0.9.5" in text
+
+
+# --- v0.9.6: уровень утверждений, независимость, bootstrap по конфигурациям --
+
+def _cohort(store, version, n_agents, n_runs, start_hour, seed, groups=2, configs_per_agent=1):
+    """Когорта, где score предсказывает исход внутри агента. groups=2:
+    каждый исход подтверждают доноры двух групп независимости."""
+    rng = random.Random(seed)
+    step = start_hour
+    for run in range(n_runs):
+        for a in range(n_agents):
+            score = rng.uniform(20, 90)
+            occurred = rng.random() < (0.9 if score < 55 else 0.1)
+            obs = store.record_observation(f"agent-{a}", score, "Conditional", trust_model_version=version,
+                                           genome_hash=f"cfg-{a}-{run % configs_per_agent}")
+            frozen = T0 + timedelta(hours=step)
+            pred = store.record_prediction(obs, "runtime_failure", frozen_at=frozen)
+            store.record_outcome(pred, "runtime", "execution_error", occurred, observed_at=frozen + timedelta(minutes=1))
+            if groups > 1:
+                store.record_outcome(pred, "judge", "execution_error", occurred,
+                                     observed_at=frozen + timedelta(minutes=2))
+            step += 1
+    return step
+
+
+def test_claim_level_exploratory_and_diagnostic():
+    store = _store()
+    _cohort(store, "0.9.6", 3, 4, 0, seed=1)
+    tiny = validate(store, target="runtime_failure")
+    assert tiny.claim_level == "exploratory" and "insufficient_data" in tiny.claim_blockers[0]
+
+    store = _store()
+    _cohort(store, "0.9.6", 10, 20, 0, seed=2)
+    report = validate(store, target="runtime_failure")
+    assert report.verdict == "signal_beats_baseline", report.detail
+    assert report.claim_level == "diagnostic"
+    assert "агентов 10 < 20" in report.claim_blockers
+    assert any("нет повторения" in b for b in report.claim_blockers)
+
+
+def test_claim_level_preliminary_needs_replication_and_external_needs_q4():
+    store = _store()
+    end = _cohort(store, "0.9.5", 25, 12, 0, seed=3)
+    _cohort(store, "0.9.6", 25, 12, end, seed=4)
+    report = validate(store, target="runtime_failure", trust_model_versions=["0.9.6"])
+    assert report.verdict == "signal_beats_baseline", report.detail
+    assert report.claim_level == "preliminary", report.claim_blockers
+    assert report.claim_blockers == ["Q4 = 0: нет исходов, подтверждённых внешней системой или человеком"]
+
+    store.register_donor("results-api", "outcome", "Results API", "external_results")
+    pred = store.get_predictions()[-1]
+    store.record_outcome(pred.id, "results-api", "execution_error", pred.outcomes[0].occurred,
+                         verification="ground_truth", quality_level="Q4",
+                         observed_at=datetime.fromisoformat(pred.frozen_at) + timedelta(minutes=5))
+    report = validate(store, target="runtime_failure", trust_model_versions=["0.9.6"])
+    assert (report.claim_level, report.claim_blockers, report.n_q4_pairs) == ("external", [], 1)
+
+    # без повторения на предыдущей когорте уровень не выше diagnostic
+    only_new = _store()
+    _cohort(only_new, "0.9.6", 25, 12, 0, seed=4)
+    assert validate(only_new, target="runtime_failure", trust_model_versions=["0.9.6"]).claim_level == "diagnostic"
+
+
+def test_independence_warning_and_group_share():
+    store = _store()
+    _cohort(store, "0.9.6", 10, 20, 0, seed=5, groups=1)
+    single = validate(store, target="runtime_failure")
+    assert single.outcomes_per_group == {"runtime": 200} and single.max_group_share == 1.0
+    assert "исходы подтверждают сами себя" in single.independence_warning
+    assert any("групп независимости 1 < 2" in b for b in single.claim_blockers)
+
+    store = _store()
+    _cohort(store, "0.9.6", 10, 20, 0, seed=5, groups=2)
+    double = validate(store, target="runtime_failure")
+    assert double.max_group_share == 0.5 and double.independence_warning is None
+
+
+def test_genome_bootstrap_differs_from_agent_bootstrap_with_several_configurations():
+    store = _store()
+    _cohort(store, "0.9.6", 10, 20, 0, seed=6, configs_per_agent=4)
+    h = validate(store, target="runtime_failure").holdout
+    assert h.roc_auc_ci and h.roc_auc_ci_by_genome and h.roc_auc_ci != h.roc_auc_ci_by_genome
+    pairs = build_pairs(store)
+    assert bootstrap_auc_ci(pairs, by="agent") == bootstrap_auc_ci(pairs, by_agent=True)
+    try:
+        bootstrap_auc_ci(pairs, by="team")
+        assert False
+    except ValueError:
+        pass
+
+
+def test_min_quality_filter_uses_outcome_quality():
+    store = _store()
+    obs = store.record_observation("a", 40.0, "Conditional")
+    store.record_evidence(obs, "runtime", "execution", "error:x", "Q1")
+    pred = store.record_prediction(obs, "runtime_failure", frozen_at=T0)
+    store.record_outcome(pred, "runtime", "execution_error", True, observed_at=T0 + timedelta(minutes=1))
+    assert validate(store, target="runtime_failure", min_quality="Q1").n_pairs == 1
+    assert validate(store, target="runtime_failure", min_quality="Q3").n_pairs == 0
+
+
+def test_cli_report_writes_all_sections():
+    from agenomics.cli import main
+    with tempfile.TemporaryDirectory() as tmp:
+        db, out = os.path.join(tmp, "e.db"), os.path.join(tmp, "report.md")
+        store = EvidenceStore(db)
+        for donor, group in (("runtime", "runtime"), ("judge", "llm")):
+            store.register_donor(donor, "execution" if donor == "runtime" else "judge", donor, group)
+        _cohort(store, "0.9.6", 10, 20, 0, seed=7)
+        obs = store.record_observation("legacy", 50.0, "Conditional", trust_model_version="0.9.6")
+        pred = store.record_prediction(obs, "incident_in_run", frozen_at=T0)
+        store.record_outcome(pred, "runtime", "execution_error", False, observed_at=T0 + timedelta(minutes=1))
+        store.close()
+        with redirect_stdout(StringIO()) as buf:
+            assert main(["validate", db, "--report", out, "--trust-model-version", "0.9.6"]) == 0
+        assert "Уровень утверждений: diagnostic" in buf.getvalue()
+        text = open(out, encoding="utf-8").read()
+        for section in ("## Когорта", "## Объём", "## Доказательства", "## Целостность", "## Цели",
+                        "### runtime_failure", "## Устаревшие цели", "### incident_in_run"):
+            assert section in text, section
+        assert "снимков предсказаний проверено 201" in text and "нарушений 0" in text
+        with redirect_stdout(StringIO()) as buf:
+            main(["validate", db, "--json"])
+        data = json.loads(buf.getvalue())
+        assert data["runtime_failure"]["claim_level"] == "diagnostic"
+        assert data["prediction_integrity"]["violations"] == []

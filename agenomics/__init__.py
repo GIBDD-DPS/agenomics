@@ -1,4 +1,4 @@
-# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.6 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 Agenomics. Genetics for AI Agents.
 
@@ -45,9 +45,14 @@ from .evidence_graph import (
     DONOR_TYPES, QUALITY_LEVELS, VERIFICATION_METHODS,
 )
 from .hooks import EvidenceStoreHook
+from .accumulation import ACCUMULATION_TARGETS, ScorecardRow, accumulation_scorecard, scorecard_text
+from .external import (
+    ExternalOutcomeVerifier, ExternalVerification, PredictionView, record_external_outcome,
+)
 from .validation import (
     validate, validate_all_targets, prediction_targets, build_pairs, validation_report_text,
     ValidationReport, ValidationPair, VERDICTS,
+    validation_report_markdown, PROTOCOL_THRESHOLDS, CLAIM_LEVELS,
 )
 from .adversarial import (
     AdversarialSuite, AdversarialReport, AxisEstimate, ProbeResult, adversarial_report_text,
@@ -75,10 +80,13 @@ __all__ = [
     "EvidenceStore", "StoredObservation", "replay_into_evaluation_layer", "AEP_SCHEMA_VERSION",
     "Donor", "StoredEvidence", "StoredPrediction", "StoredOutcome", "EvidenceProfile",
     "DONOR_TYPES", "QUALITY_LEVELS", "VERIFICATION_METHODS",
+    "ACCUMULATION_TARGETS", "ScorecardRow", "accumulation_scorecard", "scorecard_text",
+    "ExternalOutcomeVerifier", "ExternalVerification", "PredictionView", "record_external_outcome",
     "validate", "validate_all_targets", "prediction_targets", "build_pairs", "validation_report_text", "ValidationReport", "ValidationPair", "VERDICTS",
+    "validation_report_markdown", "PROTOCOL_THRESHOLDS", "CLAIM_LEVELS",
     "AdversarialSuite", "AdversarialReport", "AxisEstimate", "ProbeResult", "adversarial_report_text",
     "EvidenceStoreHook",
     "trust_report", "compatibility_report", "trust_report_docx",
 ]
 
-__version__ = "0.9.5"
+__version__ = "0.9.6"

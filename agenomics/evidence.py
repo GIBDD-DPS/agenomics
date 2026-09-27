@@ -1,4 +1,4 @@
-# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.6 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 evidence.py. Персистентное хранилище наблюдений и инцидентов по схеме AEP-001.
 
@@ -30,7 +30,7 @@ from .feedback import Incident, IncidentCategory, IncidentSeverity, IncidentSour
 
 # 1.1 (v0.9.0): добавлены таблицы donors/evidence/predictions/outcomes.
 # Изменение аддитивное, данные 1.0 остаются валидными.
-AEP_SCHEMA_VERSION = "1.1"
+AEP_SCHEMA_VERSION = "1.2"
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS observations (
@@ -168,6 +168,7 @@ class EvidenceStore(EvidenceGraphMixin):
             if column not in existing:
                 self._conn.execute(f"ALTER TABLE observations ADD COLUMN {column} {sql_type}")
         self._conn.commit()
+        self._migrate_graph_schema()
 
     def record_observation(
         self,

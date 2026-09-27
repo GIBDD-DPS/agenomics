@@ -1,4 +1,4 @@
-# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.6 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 test_evidence_graph.py. Доноры, доказательства, предсказания и исходы (v0.9.0).
 
@@ -227,7 +227,7 @@ def test_graph_survives_reopen_and_old_files_get_new_tables():
 
         reopened = EvidenceStore(db_path)
         assert reopened.get_predictions("a")[0].outcomes[0].occurred is True
-        assert reopened.get_observations("a")[0].schema_version == AEP_SCHEMA_VERSION == "1.1"
+        assert reopened.get_observations("a")[0].schema_version == AEP_SCHEMA_VERSION == "1.2"
         reopened.close()
 
 
@@ -257,3 +257,130 @@ def test_default_outcome_time_equal_to_freeze_is_accepted():
         pred_id = store.record_prediction(obs_id, "incident")
         store.record_outcome(pred_id, "runtime", "incident", False)
     assert len(store.get_predictions()[0].outcomes) == 1
+
+
+# --- v0.9.6: снимок, неизменяемость, класс и качество исхода, отпечатки -------
+
+def _v095_database(path):
+    """База в схеме 0.9.5: графовые таблицы без новых колонок, с повтором
+    доказательства и исходом неизвестного типа."""
+    from agenomics.evidence import _SCHEMA_SQL
+    from agenomics.evidence_graph import GRAPH_SCHEMA_SQL
+    conn = sqlite3.connect(path)
+    conn.executescript(_SCHEMA_SQL)
+    conn.executescript(GRAPH_SCHEMA_SQL)
+    now = "2026-09-25T10:00:00+00:00"
+    conn.execute("INSERT INTO donors VALUES ('runtime','execution','Runtime','runtime',NULL,NULL,NULL,'{}',?)", (now,))
+    conn.execute(
+        "INSERT INTO observations (agent_id, declared_score, declared_label, timestamp, trust_model_version) "
+        "VALUES ('a', 50.0, 'Conditional', ?, '0.9.5')", (now,),
+    )
+    for _ in range(2):  # один и тот же сигнал записан дважды
+        conn.execute("INSERT INTO evidence (observation_id, donor_id, evidence_type, finding, quality_level, "
+                     "created_at) VALUES (1, 'runtime', 'execution', 'success', 'Q1', ?)", (now,))
+    conn.execute("INSERT INTO predictions (observation_id, agent_id, trust_score, target, horizon, frozen_at) "
+                 "VALUES (1, 'a', 50.0, 'runtime_failure', 'next_execution', ?)", (now,))
+    later = "2026-09-25T10:00:05+00:00"
+    conn.execute("INSERT INTO outcomes (prediction_id, donor_id, outcome_type, occurred, verification, observed_at) "
+                 "VALUES (1, 'runtime', 'execution_error', 0, 'automated', ?)", (later,))
+    conn.execute("INSERT INTO outcomes (prediction_id, donor_id, outcome_type, occurred, verification, observed_at) "
+                 "VALUES (1, 'runtime', 'custom_signal', 1, 'automated', ?)", (later,))
+    conn.commit()
+    conn.close()
+
+
+def test_v095_database_is_migrated_without_losing_rows():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "old.db")
+        _v095_database(path)
+        store = EvidenceStore(path)
+        outcomes = store.get_predictions()[0].outcomes
+        assert [(o.outcome_type, o.occurred, o.outcome_class, o.quality_level) for o in outcomes] == [
+            ("execution_error", False, "RUNTIME", "Q1"), ("custom_signal", True, None, "Q1")]
+        profile = store.evidence_profile()
+        assert profile.n_evidence == 2 and profile.n_duplicate_evidence == 1
+        assert profile.n_outcomes_without_class == 1
+        assert store.verify_prediction_integrity() == {"checked": 0, "without_snapshot": 1, "violations": []}
+        triggers = {r[0] for r in store._conn.execute("SELECT name FROM sqlite_master WHERE type = 'trigger'")}
+        assert {"predictions_no_update", "outcomes_no_delete", "evidence_no_update"} <= triggers
+        store.close()
+        store = EvidenceStore(path)  # повторное открытие ничего не меняет
+        assert store.evidence_profile().n_duplicate_evidence == 1
+        store.close()
+
+
+def test_graph_tables_are_append_only():
+    store, obs_id = _store_with_observation()
+    _register_judges(store)
+    store.record_evidence(obs_id, "runtime", "execution", "success", "Q1")
+    pred = store.record_prediction(obs_id, "runtime_failure")
+    store.record_outcome(pred, "runtime", "execution_error", False)
+    for sql in ("UPDATE predictions SET trust_score = 99", "DELETE FROM predictions",
+                "UPDATE outcomes SET occurred = 1", "DELETE FROM outcomes",
+                "UPDATE evidence SET finding = 'x'", "DELETE FROM evidence"):
+        try:
+            store._conn.execute(sql)
+            assert False, f"{sql} должен быть запрещён"
+        except sqlite3.DatabaseError as e:
+            assert "append-only" in str(e)
+
+
+def test_prediction_snapshot_matches_observation_and_detects_tampering():
+    store = EvidenceStore(":memory:")
+    obs_id = store.record_observation("a", 47.0, "Conditional", genome_hash="g1", trust_model_version="0.9.6",
+                                      model_version="groq/m", prompt_version="task-v2", framework_version="1.0")
+    pred = store.record_prediction(obs_id, "task_failure", task_version="task-v2", environment_id="local")
+    snapshot = store.get_predictions()[0].snapshot
+    assert snapshot["trust_score"] == 47.0 and snapshot["genome_hash"] == "g1"
+    assert snapshot["model_version"] == "groq/m" and snapshot["environment_id"] == "local"
+    assert store.verify_prediction_integrity() == {"checked": 1, "without_snapshot": 0, "violations": []}
+    # подмена в обход API: снимок перестаёт сходиться с хэшем
+    store._conn.execute("DROP TRIGGER predictions_no_update")
+    store._conn.execute("UPDATE predictions SET snapshot_json = replace(snapshot_json, '47.0', '90.0') WHERE id = ?",
+                        (pred,))
+    store._conn.execute("UPDATE predictions SET trust_score = 90.0 WHERE id = ?", (pred,))
+    problems = store.verify_prediction_integrity()["violations"]
+    assert problems == [{"prediction_id": pred, "problem": "snapshot_sha256"}]
+    _expect_value_error(lambda: store.record_prediction(obs_id, "task_failure", task_version="task-v2"))
+
+
+def test_repeated_evidence_and_outcome_are_not_counted_twice():
+    store, obs_id = _store_with_observation()
+    _register_judges(store)
+    first = store.record_evidence(obs_id, "runtime", "execution", "success", "Q1", source_reference="run-1")
+    assert store.record_evidence(obs_id, "runtime", "execution", "success", "Q1", source_reference="run-1") == first
+    assert store.record_evidence(obs_id, "runtime", "execution", "success", "Q1", source_reference="run-2") != first
+    pred = store.record_prediction(obs_id, "runtime_failure")
+    o1 = store.record_outcome(pred, "runtime", "execution_error", False)
+    assert store.record_outcome(pred, "runtime", "execution_error", False) == o1
+    assert len(store.get_predictions()[0].outcomes) == 1
+
+
+def test_outcome_class_and_quality():
+    store, obs_id = _store_with_observation()
+    _register_judges(store)
+    store.record_evidence(obs_id, "claude-judge", "task_check", "fail", "Q3")
+    pred = store.record_prediction(obs_id, "task_failure")
+    store.record_outcome(pred, "claude-judge", "task_failure", True)
+    store.record_outcome(pred, "human-1", "wrong_tone", True, outcome_class="BEHAVIORAL", quality_level="Q4",
+                         verification="human")
+    outcomes = store.get_predictions()[0].outcomes
+    assert [(o.outcome_class, o.quality_level) for o in outcomes] == [("TASK", "Q3"), ("BEHAVIORAL", "Q4")]
+    _expect_value_error(lambda: store.record_outcome(pred, "runtime", "x", True, outcome_class="MISC"))
+    _expect_value_error(lambda: store.record_outcome(pred, "runtime", "x", True, quality_level="Q9"))
+
+
+def test_duplicate_predictions_in_old_database_block_unique_index_but_are_counted():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "old.db")
+        _v095_database(path)
+        conn = sqlite3.connect(path)
+        conn.execute("INSERT INTO predictions (observation_id, agent_id, trust_score, target, horizon, frozen_at) "
+                     "VALUES (1, 'a', 50.0, 'runtime_failure', 'next_execution', '2026-09-25T10:00:00+00:00')")
+        conn.commit()
+        conn.close()
+        store = EvidenceStore(path)
+        assert store.evidence_profile().n_duplicate_predictions == 1
+        indexes = {r[0] for r in store._conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+        assert "ux_predictions_obs_target" not in indexes
+        store.close()

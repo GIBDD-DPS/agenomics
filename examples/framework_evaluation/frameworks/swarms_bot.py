@@ -1,4 +1,4 @@
-# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.6 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 Шаблон под Swarms (kyegomez/swarms), переведён на Groq (бесплатный
 провайдер, без карты). Требует переменную окружения GROQ_API_KEY.

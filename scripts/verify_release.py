@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.6 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 verify_release.py. Проверяет, что все файлы, которые должны быть в
 репозитории, реально на месте, прежде чем публиковать релиз или тег.
@@ -49,12 +49,16 @@ CRITICAL_FILES = [
     "agenomics/adversarial.py",
     "agenomics/evidence_graph.py",
     "agenomics/validation.py",
+    "agenomics/external.py",
+    "agenomics/accumulation.py",
     "agenomics/cli.py",
     "agenomics/reports.py",
     "agenomics/api.py",
     "docs/SPECIFICATION.md",
     "docs/METHODOLOGY.md",
     "docs/AEP-001.md",
+    "docs/VALIDATION_PROTOCOL.md",
+    "docs/specs/v0.9.6-evidence-accumulation.md",
     "docs/CONNECT_YOUR_AGENTS.md",
     "docs/PRIZOLOV_BRIDGE_INTERFACE.md",
     "benchmark/README.md",
