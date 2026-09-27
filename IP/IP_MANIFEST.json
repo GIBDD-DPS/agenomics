@@ -249,6 +249,24 @@
       "since": "0.9.1"
     },
     {
+      "id": "external-verification",
+      "name": "Внешнее подтверждение исхода (Q4)",
+      "type": "module",
+      "paths": [
+        "agenomics/external.py"
+      ],
+      "since": "0.9.6"
+    },
+    {
+      "id": "accumulation-scorecard",
+      "name": "Scorecard накопления доказательств",
+      "type": "module",
+      "paths": [
+        "agenomics/accumulation.py"
+      ],
+      "since": "0.9.6"
+    },
+    {
       "id": "methodology",
       "name": "Методология Agenomics",
       "type": "methodology",

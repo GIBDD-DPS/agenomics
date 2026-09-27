@@ -1,4 +1,4 @@
-# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.6 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 validation.py. Validation Engine методологии Agenomics.
 
@@ -51,6 +51,20 @@ DEFAULT_EXCLUDED_OUTCOME_TYPES = ("infrastructure_error",)
 # базах. Отчёт по ним строится (данные есть), но помечается и идёт после
 # основных целей: общая цель "был ли инцидент" смешивает разные события и
 # не сравнима с раздельными целями.
+# [v0.9.6] Пороги docs/VALIDATION_PROTOCOL.md, раздел 6: единственный
+# источник чисел для вердикта и уровня утверждений.
+PROTOCOL_THRESHOLDS = {
+    "min_test_pairs": 30,         # пар в проверочной части для любого вердикта кроме insufficient_data
+    "min_class_count": 5,         # событий и не-событий в проверочной части
+    "preliminary_events": 20,     # событий цели для предварительного результата
+    "preliminary_agents": 20,     # агентов для предварительного результата
+    "min_groups": 2,              # групп независимости для предварительного результата
+    "external_requires_q4": True,  # внешняя валидность только с исходами Q4 или подтверждёнными человеком
+}
+
+CLAIM_LEVELS = ("exploratory", "diagnostic", "preliminary", "external")
+QUALITY_ORDER = ("Q0", "Q1", "Q2", "Q3", "Q4")
+
 LEGACY_TARGETS = {
     "incident_in_run": "общая цель до v0.9.2; с v0.9.2 вместо неё runtime_failure, "
                        "security_incident и task_failure, новые предсказания под неё не создаются",
@@ -75,6 +89,7 @@ class ValidationPair:
     donor_ids: Tuple[str, ...] = ()           # доноры исходов, вошедших в пару
     independence_groups: Tuple[str, ...] = ()
     verified: bool = False                    # хотя бы один исход human/ground_truth
+    max_quality: Optional[str] = None         # [v0.9.6] лучший уровень качества исходов пары
 
     @property
     def risk(self) -> float:
@@ -117,6 +132,9 @@ class HoldoutResult:
     baseline_majority_accuracy: Optional[float]
     baseline_constant_brier: Optional[float]
     baseline_agent_history: Metrics
+    # [v0.9.6] Тот же интервал AUC, но ресэмплируются конфигурации (genome_hash):
+    # сто прогонов одной конфигурации не сто независимых доказательств.
+    roc_auc_ci_by_genome: Optional[Tuple[float, float]] = None
 
 
 @dataclass
@@ -145,6 +163,19 @@ class ValidationReport:
     holdout: Optional[HoldoutResult] = None
     # [v0.9.5] Пояснение, если цель устаревшая (LEGACY_TARGETS), иначе None.
     legacy_note: Optional[str] = None
+    # [v0.9.6] Независимость: сколько пар опираются на исход каждой группы,
+    # доля крупнейшей группы, предупреждение.
+    outcomes_per_group: Dict[str, int] = field(default_factory=dict)
+    max_group_share: Optional[float] = None
+    independence_warning: Optional[str] = None
+    # [v0.9.6] Что эти данные позволяют утверждать (VALIDATION_PROTOCOL.md,
+    # раздел 6) и что мешает следующему уровню. Отдельно от вердикта:
+    # вердикт отвечает, есть ли сигнал, уровень, можно ли это заявлять.
+    claim_level: str = "exploratory"
+    claim_blockers: List[str] = field(default_factory=list)
+    n_q4_pairs: int = 0
+    period_start: Optional[str] = None
+    period_end: Optional[str] = None
 
 
 # --- Сборка пар ------------------------------------------------------------
@@ -163,6 +194,7 @@ def _collect_pairs(
     verification: Optional[Sequence[str]],
     agent_id: Optional[str],
     trust_model_versions: Optional[Sequence[str]] = None,
+    min_quality: Optional[str] = None,
 ) -> Tuple[List[ValidationPair], int]:
     genome_by_obs, version_by_obs = {}, {}
     for obs_id, genome_hash, version in store._conn.execute(
@@ -174,7 +206,7 @@ def _collect_pairs(
     for p in store.get_predictions(agent_id):
         if target is not None and p.target != target:
             continue
-        # [после v0.9.5] Когорта по версии модели доверия: база накопительная, и
+        # [v0.9.6] Когорта по версии модели доверия: база накопительная, и
         # прогоны разных версий Trust Score проверяются по отдельности.
         if trust_model_versions is not None and version_by_obs.get(p.observation_id) not in trust_model_versions:
             continue
@@ -197,6 +229,8 @@ def _collect_pairs(
             and (outcome_types is None or o.outcome_type in outcome_types)
             and (independence_groups is None or o.independence_group in independence_groups)
             and (verification is None or o.verification in verification)
+            and (min_quality is None or (o.quality_level is not None
+                                         and QUALITY_ORDER.index(o.quality_level) >= QUALITY_ORDER.index(min_quality)))
         ]
         if not matching:
             continue
@@ -207,6 +241,8 @@ def _collect_pairs(
             donor_ids=tuple(sorted({o.donor_id for o in matching})),
             independence_groups=tuple(sorted({o.independence_group for o in matching})),
             verified=any(o.verification in ("human", "ground_truth") for o in matching),
+            max_quality=max((o.quality_level for o in matching if o.quality_level), default=None,
+                            key=QUALITY_ORDER.index),
         ))
     return pairs, n_rejected
 
@@ -372,16 +408,28 @@ def bootstrap_auc_ci(
     n_resamples: int = 1000,
     seed: int = 0,
     by_agent: bool = True,
+    by: Optional[str] = None,
 ) -> Optional[Tuple[float, float]]:
     """95% интервал AUC. by_agent: ресэмплируются агенты целиком со всеми
     их прогонами (кластерный bootstrap), иначе отдельные наблюдения.
+    [v0.9.6] by="agent" | "genome" | "observation" задаёт кластер явно
+    (by_agent остаётся для совместимости); у пары без genome_hash
+    кластером служит агент.
     None при меньше чем двух примерах любого класса: с одним примером
     каждый ресэмпл, где он есть, даёт вырожденный AUC, и интервал вроде
     (1.0, 1.0) только вводил бы в заблуждение."""
     if not _has_both_classes(pairs):
         return None
+    by = by or ("agent" if by_agent else "observation")
+    keys = {
+        "agent": lambda p: p.agent_id,
+        "genome": lambda p: p.genome_hash or f"agent:{p.agent_id}",
+        "observation": lambda p: str(p.prediction_id),
+    }
+    if by not in keys:
+        raise ValueError(f"by должен быть одним из {tuple(keys)}, получено {by!r}")
     return _cluster_bootstrap(
-        pairs, (lambda p: p.agent_id) if by_agent else (lambda p: str(p.prediction_id)),
+        pairs, keys[by],
         lambda sample: roc_auc([p.risk for p in sample], [p.occurred for p in sample]),
         n_resamples, seed,
     )
@@ -477,6 +525,7 @@ def _holdout(pairs: List[ValidationPair], calibration_fraction: float, min_agent
             round(brier([calib_rate] * len(test), labels), 4) if calib_rate is not None and test else None
         ),
         baseline_agent_history=_metrics(history_prob, labels, probabilities=history_prob),
+        roc_auc_ci_by_genome=bootstrap_auc_ci(test, by="genome") if test else None,
     )
 
 
@@ -491,10 +540,12 @@ def validate(
     verification: Optional[Sequence[str]] = None,
     agent_id: Optional[str] = None,
     trust_model_versions: Optional[Sequence[str]] = None,
+    min_quality: Optional[str] = None,
     calibration_fraction: float = 0.6,
     min_test_pairs: int = 30,
     min_class_count: int = 5,
     min_agents_for_cluster_bootstrap: int = 5,
+    _with_claims: bool = True,
 ) -> ValidationReport:
     """Сопоставляет замороженные предсказания с исходами. См. docstring модуля."""
     if not 0.0 < calibration_fraction < 1.0:
@@ -505,7 +556,10 @@ def validate(
         "independence_groups": list(independence_groups) if independence_groups else None,
         "verification": list(verification) if verification else None, "agent_id": agent_id,
         "trust_model_versions": list(trust_model_versions) if trust_model_versions else None,
+        "min_quality": min_quality,
     }
+    if min_quality is not None and min_quality not in QUALITY_ORDER:
+        raise ValueError(f"min_quality должен быть одним из {QUALITY_ORDER}, получено {min_quality!r}")
     if target is None:
         targets = prediction_targets(store)
         if len(targets) > 1:
@@ -517,7 +571,7 @@ def validate(
             )
     pairs, n_rejected = _collect_pairs(
         store, target, outcome_types, exclude_outcome_types, independence_groups, verification, agent_id,
-        trust_model_versions,
+        trust_model_versions, min_quality,
     )
     labels = [p.occurred for p in pairs]
     risks = [p.risk for p in pairs]
@@ -549,6 +603,31 @@ def validate(
     if pairs:
         report.holdout = _holdout(pairs, calibration_fraction, min_agents_for_cluster_bootstrap)
     report.verdict, report.detail = _verdict(report, min_test_pairs, min_class_count, risks)
+
+    # [v0.9.6] Независимость и уровень утверждений
+    per_group: Dict[str, int] = {}
+    for p in pairs:
+        for g in p.independence_groups:
+            per_group[g] = per_group.get(g, 0) + 1
+    report.outcomes_per_group = dict(sorted(per_group.items()))
+    if pairs:
+        # Доля крупнейшей группы среди всех связей «пара – группа»: пара,
+        # подтверждённая двумя группами, учитывается в обеих.
+        report.max_group_share = round(max(per_group.values()) / sum(per_group.values()), 4) if per_group else None
+        report.period_start = min(p.frozen_at for p in pairs).isoformat()
+        report.period_end = max(p.frozen_at for p in pairs).isoformat()
+        if report.n_independence_groups < PROTOCOL_THRESHOLDS["min_groups"]:
+            report.independence_warning = (
+                f"все исходы из {report.n_independence_groups} групп(ы) независимости "
+                f"(нужно не меньше {PROTOCOL_THRESHOLDS['min_groups']}): исходы подтверждают сами себя"
+            )
+        elif report.max_group_share is not None and report.max_group_share > 0.9:
+            report.independence_warning = (
+                f"одна группа независимости даёт {report.max_group_share:.0%} подтверждений"
+            )
+    report.n_q4_pairs = sum(1 for p in pairs if p.max_quality == "Q4")
+    if _with_claims:
+        report.claim_level, report.claim_blockers = _claim_level(store, report, target, filters, calibration_fraction)
     return report
 
 
@@ -556,6 +635,61 @@ def validate_all_targets(store, **kwargs) -> Dict[str, "ValidationReport"]:
     """validate() отдельно для каждой цели предсказаний в базе."""
     kwargs.pop("target", None)
     return {target: validate(store, target=target, **kwargs) for target in prediction_targets(store)}
+
+
+def _version_key(version: str):
+    return tuple(int(x) if x.isdigit() else x for x in str(version).replace("-", ".").split("."))
+
+
+def _previous_cohort(store, versions: Sequence[str]) -> Optional[str]:
+    """Версия модели доверия, предшествующая единственной выбранной."""
+    if not versions or len(versions) != 1:
+        return None
+    known = sorted(
+        {r[0] for r in store._conn.execute(
+            "SELECT DISTINCT o.trust_model_version FROM predictions p JOIN observations o ON o.id = p.observation_id "
+            "WHERE o.trust_model_version IS NOT NULL")},
+        key=_version_key,
+    )
+    earlier = [v for v in known if _version_key(v) < _version_key(versions[0])]
+    return earlier[-1] if earlier else None
+
+
+def _claim_level(store, report: ValidationReport, target, filters, calibration_fraction) -> Tuple[str, List[str]]:
+    """Уровень утверждений по порогам протокола и список того, что мешает
+    следующему уровню. Уровень повышается только по порядку."""
+    t = PROTOCOL_THRESHOLDS
+    if report.verdict == "insufficient_data":
+        return "exploratory", [f"вердикт insufficient_data: {report.detail}"]
+
+    blockers = []
+    if report.n_positive < t["preliminary_events"]:
+        blockers.append(f"событий {report.n_positive} < {t['preliminary_events']}")
+    if report.n_agents < t["preliminary_agents"]:
+        blockers.append(f"агентов {report.n_agents} < {t['preliminary_agents']}")
+    if report.n_independence_groups < t["min_groups"]:
+        blockers.append(f"групп независимости {report.n_independence_groups} < {t['min_groups']}")
+    if report.verdict != "signal_beats_baseline":
+        blockers.append(f"вердикт {report.verdict}, нужен signal_beats_baseline")
+    previous = _previous_cohort(store, filters.get("trust_model_versions") or [])
+    if previous is None:
+        blockers.append("нет повторения на другой когорте (выберите одну версию: --trust-model-version)")
+    else:
+        kwargs = {k: v for k, v in filters.items() if k not in ("target", "trust_model_versions")}
+        kwargs = {k: v for k, v in kwargs.items() if v is not None}
+        earlier = validate(store, target=target, trust_model_versions=[previous],
+                           calibration_fraction=calibration_fraction, _with_claims=False, **kwargs)
+        if earlier.verdict != "signal_beats_baseline":
+            blockers.append(f"на предыдущей когорте {previous} вердикт {earlier.verdict}")
+    if blockers:
+        return "diagnostic", blockers
+
+    external_blockers = []
+    if t["external_requires_q4"] and report.n_q4_pairs == 0 and report.n_verified_pairs == 0:
+        external_blockers.append("Q4 = 0: нет исходов, подтверждённых внешней системой или человеком")
+    if external_blockers:
+        return "preliminary", external_blockers
+    return "external", []
 
 
 def _verdict(report: ValidationReport, min_test_pairs: int, min_class_count: int, risks: Sequence[float]):
@@ -602,7 +736,7 @@ def evidence_profile_text(profile, reports: Optional[Dict[str, "ValidationReport
     """Шапка отчёта: объём и качество данных до вердиктов по целям. Без
     неё по отчёту не видно, на чём он построен.
 
-    [после v0.9.5] Уровни N раздельно: предсказания, наблюдения (прогоны) с
+    [v0.9.6] Уровни N раздельно: предсказания, наблюдения (прогоны) с
     предсказаниями, агенты, конфигурации. Одно наблюдение даёт по
     предсказанию на каждую цель, поэтому предсказаний больше, чем
     независимых прогонов. С reports добавляется число событий по целям."""
@@ -646,6 +780,12 @@ def validation_report_text(report: ValidationReport) -> str:
         f"  Независимость: доноров {report.n_donors}, групп {report.n_independence_groups} "
         f"{report.independence_groups}, подтверждённых человеком/реальностью пар {report.n_verified_pairs}"
         + (f", отброшено исходов раньше заморозки: {report.n_rejected_outcomes}" if report.n_rejected_outcomes else ""),
+    ]
+    if report.outcomes_per_group:
+        lines.append(f"    Пар по группам: {report.outcomes_per_group}, доля крупнейшей {report.max_group_share}")
+    if report.independence_warning:
+        lines.append(f"    ⚠️ {report.independence_warning}")
+    lines += [
         f"  Вся выборка: ROC-AUC {o.roc_auc}, PR-AUC {o.pr_auc} (base rate {o.base_rate}), "
         f"Brier {o.brier}, ECE {report.expected_calibration_error}",
         f"  Уровень агента: Spearman(средний score, частота событий) = {report.agent_level_spearman}",
@@ -653,13 +793,91 @@ def validation_report_text(report: ValidationReport) -> str:
     if h:
         lines += [
             f"  Holdout: калибровка {h.calibration_n}, проверка {h.test_n} (с {h.split_at})",
-            f"    Trust Score: ROC-AUC {h.trust_score.roc_auc} CI {h.roc_auc_ci}, PR-AUC {h.trust_score.pr_auc}, "
-            f"Brier {h.trust_score.brier}",
+            f"    Trust Score: ROC-AUC {h.trust_score.roc_auc} CI {h.roc_auc_ci} (bootstrap по {_UNIT[h.bootstrap_unit]}), "
+            f"CI по конфигурациям {h.roc_auc_ci_by_genome}, PR-AUC {h.trust_score.pr_auc}, Brier {h.trust_score.brier}",
             f"    Порог риска {h.risk_threshold}: precision {h.precision}, recall {h.recall}, F1 {h.f1}, "
             f"accuracy {h.accuracy} (majority class {h.baseline_majority_accuracy})",
             f"    Baseline история агента: ROC-AUC {h.baseline_agent_history.roc_auc} "
             f"(CI разницы с Trust Score {h.auc_difference_vs_agent_history_ci}), "
             f"Brier {h.baseline_agent_history.brier}; константа: Brier {h.baseline_constant_brier}",
         ]
+    lines.append(f"  Уровень утверждений: {report.claim_level}"
+                 + (f"; до следующего не хватает: {'; '.join(report.claim_blockers)}" if report.claim_blockers else ""))
     lines.append("  Brier и калибровка считаются по наивной вероятности p = (100 - score) / 100.")
     return "\n".join(lines)
+
+
+_UNIT = {"agent": "агентам", "observation": "прогонам", "genome": "конфигурациям"}
+
+
+def validation_report_markdown(profile, reports: Dict[str, "ValidationReport"], integrity: Optional[Dict] = None) -> str:
+    """[v0.9.6] Полный отчёт для артефакта прогона: когорта, объём,
+    доказательства, целостность, каждая цель с вердиктом и уровнем
+    утверждений, устаревшие цели отдельно (ТЗ v0.9.6, п. 5.3)."""
+    first = next(iter(reports.values()), None)
+    filters = first.filters if first else {}
+    starts = [r.period_start for r in reports.values() if r.period_start]
+    ends = [r.period_end for r in reports.values() if r.period_end]
+    md = [
+        "# Agenomics Validation Report",
+        "",
+        "## Когорта",
+        f"- trust_model_version: {', '.join(filters.get('trust_model_versions') or []) or 'все версии'}",
+        f"- период: {min(starts) if starts else '—'} … {max(ends) if ends else '—'}",
+        f"- фильтры: " + ", ".join(f"{k}={v}" for k, v in filters.items()
+                                   if v and k not in ("target", "trust_model_versions")),
+        "",
+        "## Объём",
+        f"- наблюдений в базе: {profile.n_observations}, агентов {profile.n_agents}",
+        f"- с предсказаниями: прогонов {profile.n_predicted_observations}, агентов {profile.n_predicted_agents}, "
+        f"конфигураций {profile.n_predicted_genomes}, предсказаний {profile.n_predictions}",
+        f"- повторы, не вошедшие в счёт: доказательств {profile.n_duplicate_evidence}, исходов "
+        f"{profile.n_duplicate_outcomes}, предсказаний {profile.n_duplicate_predictions}; исходов без класса "
+        f"{profile.n_outcomes_without_class}",
+        "",
+        "## Доказательства",
+        "| Уровень | Число |", "|---|---:|",
+        *[f"| {q} | {n} |" for q, n in profile.evidence_by_quality.items()],
+        "",
+        f"Группы независимости ({profile.n_independence_groups}): "
+        + ", ".join(f"{g} {n}" for g, n in sorted(profile.independence_groups.items())),
+        "",
+        "## Целостность",
+    ]
+    rejected = sum(r.n_rejected_outcomes for r in reports.values())
+    md.append(f"- исходов раньше заморозки (отброшены): {rejected}")
+    if integrity is not None:
+        md.append(f"- снимков предсказаний проверено {integrity['checked']}, без снимка (до v0.9.6) "
+                  f"{integrity['without_snapshot']}, нарушений {len(integrity['violations'])}")
+    md.append("- изменение и удаление записей графа запрещено триггерами базы")
+    main = {t: r for t, r in reports.items() if not r.legacy_note}
+    legacy = {t: r for t, r in reports.items() if r.legacy_note}
+    for title, group in (("## Цели", main), ("## Устаревшие цели", legacy)):
+        if not group:
+            continue
+        md += ["", title]
+        for target, r in group.items():
+            h = r.holdout
+            md += [
+                "", f"### {target}", "",
+                f"- **Вердикт:** `{r.verdict}`. {r.detail}",
+                f"- **Уровень утверждений:** `{r.claim_level}`"
+                + (f"; не хватает: {'; '.join(r.claim_blockers)}" if r.claim_blockers else ""),
+                f"- пары {r.n_pairs}, событий {r.n_positive}, агентов {r.n_agents}, конфигураций {r.n_configurations}, "
+                f"пар с Q4 {r.n_q4_pairs}",
+                f"- независимость: доноров {r.n_donors}, групп {r.n_independence_groups}, по группам "
+                f"{r.outcomes_per_group}" + (f"; ⚠️ {r.independence_warning}" if r.independence_warning else ""),
+                f"- вся выборка: ROC-AUC {r.overall.roc_auc}, PR-AUC {r.overall.pr_auc}, Brier {r.overall.brier}",
+            ]
+            if h:
+                md += [
+                    f"- holdout: калибровка {h.calibration_n}, проверка {h.test_n}; ROC-AUC {h.trust_score.roc_auc}, "
+                    f"CI по {_UNIT[h.bootstrap_unit]} {h.roc_auc_ci}, по конфигурациям {h.roc_auc_ci_by_genome}",
+                    f"- baseline «история агента»: ROC-AUC {h.baseline_agent_history.roc_auc}, CI разницы "
+                    f"{h.auc_difference_vs_agent_history_ci}. В framework_evaluation агент и есть фреймворк, "
+                    f"так что это и baseline по фреймворку",
+                ]
+            if r.legacy_note:
+                md.append(f"- {r.legacy_note}")
+    md += ["", "Пороги и допустимые формулировки: docs/VALIDATION_PROTOCOL.md, раздел 6.", ""]
+    return "\n".join(md)

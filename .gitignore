@@ -7,3 +7,5 @@ dist/
 .env
 .venv/
 venv/
+agent_workspace/
+examples/framework_evaluation/validation_report.md

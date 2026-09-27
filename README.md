@@ -8,10 +8,10 @@ Genetics for AI Agents. Predictability and compatibility scoring for autonomous 
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Status](https://img.shields.io/badge/status-v0.9.5-orange.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-v0.9.6-orange.svg)](CHANGELOG.md)
 [![PyPI](https://img.shields.io/badge/PyPI-agenomics-blue.svg)](https://pypi.org/project/agenomics/)
 
-> **Автор**: Dm.Andreyanov **Версия**: 0.9.5 **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
+> **Автор**: Dm.Andreyanov **Версия**: 0.9.6 **Связанные проекты**: [Prizolov Lab](https://prizolov.ru), [Agent Genome Mapping (AGM)](https://github.com/GIBDD-DPS/agent-genome-mapping)
 >
 > 📐 Формальная спецификация конвейера (Genome → Genome Schema → Phenotype
 > → Trust Model → Compatibility Model → Drift Model → Observed Behaviour
@@ -726,7 +726,9 @@ Python. `requirements.txt` нужен для запуска этого репо�
 
 - [x] Задачи с проверяемым ответом для всех 19 шаблонов (v0.9.4): `task_failure` измеряется у каждого агента
 - [x] v0.9.5 Validation Integrity: `task_outcome` пуст при сбое окружения; `PROMPT_VERSION` у всех шаблонов; шапка отчёта с объёмом и качеством данных (Q0–Q4); `incident_in_run` помечена как устаревшая цель; эталон данных v0.9.3; ошибки провайдера в Griptape/Agno/Swarms больше не выглядят как неверный ответ
-- [ ] После v0.9.5 новых функций не добавлять: копить проспективные предсказания (100+, затем 500+) на разных задачах, промптах и моделях, затем решение о 1.0
+- [x] v0.9.6 Evidence Accumulation Release: снимок и неизменяемость предсказаний, класс и качество исходов, дедупликация, интерфейс Q4 (`agenomics/external.py`), уровень утверждений, bootstrap по конфигурациям, `validate --report`, `agenomics scorecard` ([ТЗ](docs/specs/v0.9.6-evidence-accumulation.md))
+- [ ] Первый источник Q4: `prizolov-sports-ai` (прогноз агента → результат матча из внешнего источника)
+- [ ] После v0.9.6 новых функций не добавлять: копить проспективные предсказания (100+, затем 500+) на разных задачах, промптах и моделях, затем решение о 1.0
 
 - [ ] Фильтр по `quality_level`: у исходов его нет, он есть у доказательств; нужно решить, как связывать
 - [ ] Статистика на уровне конфигурации (`genome_hash`) как отдельный уровень, а не только счётчик

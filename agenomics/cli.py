@@ -1,4 +1,4 @@
-# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.6 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 cli.py. Минимальный командный интерфейс методологии Agenomics.
 
@@ -133,7 +133,9 @@ def cmd_validate(args) -> int:
     Engine). Код выхода 0 при любом вердикте: это отчёт, а не проверка
     качества кода, "insufficient_data" на ранних данных нормален."""
     from dataclasses import asdict
-    from .validation import evidence_profile_text, validate, validate_all_targets, validation_report_text
+    from .validation import (
+        evidence_profile_text, validate, validate_all_targets, validation_report_markdown, validation_report_text,
+    )
 
     if not Path(args.db_path).exists():
         print(f"Ошибка: файл базы не найден: {args.db_path}", file=sys.stderr)
@@ -143,6 +145,7 @@ def cmd_validate(args) -> int:
         outcome_types=args.outcome_type, exclude_outcome_types=args.exclude_outcome_type,
         independence_groups=args.independence_group, agent_id=args.agent_id,
         trust_model_versions=args.trust_model_version,
+        min_quality=args.min_quality,
         calibration_fraction=args.calibration_fraction,
     )
     try:
@@ -153,12 +156,16 @@ def cmd_validate(args) -> int:
         else:
             reports = validate_all_targets(store, **kwargs)
         profile = store.evidence_profile(args.agent_id)
+        integrity = store.verify_prediction_integrity()
     finally:
         store.close()
+    if args.report:
+        Path(args.report).write_text(validation_report_markdown(profile, reports, integrity), encoding="utf-8")
     if args.json:
         # evidence_profile рядом с целями: имя цели с ним не совпадёт.
         data = {t: asdict(r) for t, r in reports.items()}
         data["evidence_profile"] = asdict(profile)
+        data["prediction_integrity"] = integrity
         print(json.dumps(data, ensure_ascii=False, indent=2, default=str))
     elif not reports:
         print(evidence_profile_text(profile))
@@ -166,6 +173,26 @@ def cmd_validate(args) -> int:
     else:
         print(evidence_profile_text(profile, reports) + "\n")
         print("\n\n".join(validation_report_text(r) for r in reports.values()))
+    return 0
+
+
+def cmd_scorecard(args) -> int:
+    """[v0.9.6] Прогресс накопления доказательств к ориентирам (accumulation.py)."""
+    from dataclasses import asdict
+    from .accumulation import accumulation_scorecard, scorecard_text
+
+    if not Path(args.db_path).exists():
+        print(f"Ошибка: файл базы не найден: {args.db_path}", file=sys.stderr)
+        return 1
+    store = EvidenceStore(args.db_path)
+    try:
+        rows = accumulation_scorecard(store, trust_model_versions=args.trust_model_version)
+    finally:
+        store.close()
+    if args.json:
+        print(json.dumps([asdict(r) for r in rows], ensure_ascii=False, indent=2))
+    else:
+        print(scorecard_text(rows, args.trust_model_version))
     return 0
 
 
@@ -214,11 +241,23 @@ def main(argv=None) -> int:
                             help="Исключить предсказания с этим произошедшим исходом (по умолчанию infrastructure_error)")
     p_validate.add_argument("--independence-group", action="append", default=None)
     p_validate.add_argument("--agent-id", default=None)
+    p_validate.add_argument("--min-quality", default=None, choices=("Q0", "Q1", "Q2", "Q3", "Q4"),
+                            help="Только исходы с уровнем качества не ниже заданного")
+    p_validate.add_argument("--report", default=None, metavar="PATH",
+                            help="Записать полный отчёт в Markdown (ТЗ v0.9.6, п. 5.3)")
     p_validate.add_argument("--trust-model-version", action="append", default=None,
                             help="Только предсказания наблюдений этой версии модели доверия (можно несколько)")
     p_validate.add_argument("--calibration-fraction", type=float, default=0.6)
     p_validate.add_argument("--json", action="store_true")
     p_validate.set_defaults(func=cmd_validate)
+
+    p_scorecard = subparsers.add_parser(
+        "scorecard", help="Сколько доказательств накоплено и сколько не хватает до ориентиров",
+    )
+    p_scorecard.add_argument("db_path")
+    p_scorecard.add_argument("--trust-model-version", action="append", default=None)
+    p_scorecard.add_argument("--json", action="store_true")
+    p_scorecard.set_defaults(func=cmd_scorecard)
 
     args = parser.parse_args(argv)
     if getattr(args, "command", None) == "validate" and args.exclude_outcome_type is None:

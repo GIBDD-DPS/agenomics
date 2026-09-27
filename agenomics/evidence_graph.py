@@ -1,4 +1,4 @@
-# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.6 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 evidence_graph.py. Доноры, доказательства, предсказания и исходы (AEP-001 v1.1).
 
@@ -31,6 +31,7 @@ evidence_graph.py. Доноры, доказательства, предсказ�
 Реализовано как миксин EvidenceStore: те же SQLite-файл и соединение.
 """
 
+import hashlib
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -48,6 +49,23 @@ QUALITY_LEVELS = {
 }
 
 VERIFICATION_METHODS = ("automated", "human", "ground_truth")
+
+# [v0.9.6] Класс исхода: что именно случилось, независимо от конкретного
+# outcome_type. Подтип сбоя окружения (провайдер, зависимости) не отдельный
+# класс: он уже есть в классе ошибки и пишется в details.
+OUTCOME_CLASSES = ("TASK", "SECURITY", "RUNTIME", "BEHAVIORAL", "INFRASTRUCTURE")
+OUTCOME_CLASS_BY_TYPE = {
+    "task_failure": "TASK",
+    "secret_leak": "SECURITY",
+    "execution_error": "RUNTIME",
+    "infrastructure_error": "INFRASTRUCTURE",
+}
+
+# Поля снимка предсказания: копируются из наблюдения в момент заморозки.
+SNAPSHOT_OBSERVATION_FIELDS = (
+    "trust_model_version", "genome_hash", "genome_version", "model_version",
+    "prompt_version", "framework_version",
+)
 
 GRAPH_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS donors (
@@ -106,6 +124,49 @@ CREATE INDEX IF NOT EXISTS idx_predictions_agent_id ON predictions(agent_id);
 CREATE INDEX IF NOT EXISTS idx_outcomes_prediction_id ON outcomes(prediction_id);
 """
 
+# [v0.9.6] Колонки, добавленные после появления таблиц. Файл базы старой
+# версии получает их миграцией (_migrate_graph_schema), как observations
+# в evidence.py.
+_EXPECTED_GRAPH_COLUMNS = {
+    "predictions": {
+        **{f: "TEXT" for f in SNAPSHOT_OBSERVATION_FIELDS},
+        "task_version": "TEXT", "environment_id": "TEXT",
+        "snapshot_json": "TEXT", "snapshot_sha256": "TEXT",
+    },
+    "outcomes": {
+        "outcome_class": "TEXT", "quality_level": "TEXT", "source_reference": "TEXT",
+        "collector_version": "TEXT", "fingerprint": "TEXT",
+    },
+    "evidence": {"collector_version": "TEXT", "fingerprint": "TEXT"},
+}
+
+_APPEND_ONLY_TABLES = ("predictions", "outcomes", "evidence")
+
+# Триггеры создаются после миграции: заполнение новых колонок старых строк
+# идёт до них. Исправление записи оформляется новой строкой.
+GRAPH_CONSTRAINTS_SQL = "".join(
+    f"""
+CREATE TRIGGER IF NOT EXISTS {t}_no_update BEFORE UPDATE ON {t}
+BEGIN SELECT RAISE(ABORT, '{t} are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS {t}_no_delete BEFORE DELETE ON {t}
+BEGIN SELECT RAISE(ABORT, '{t} are append-only'); END;
+""" for t in _APPEND_ONLY_TABLES
+) + """
+CREATE UNIQUE INDEX IF NOT EXISTS ux_evidence_fingerprint ON evidence(fingerprint) WHERE fingerprint IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_outcomes_fingerprint ON outcomes(fingerprint) WHERE fingerprint IS NOT NULL;
+"""
+
+_BACKFILL_MARKER = "graph_backfill_0.9.6"
+
+
+def _fingerprint(*parts) -> str:
+    return hashlib.sha256("|".join("" if p is None else str(p) for p in parts).encode("utf-8")).hexdigest()
+
+
+def _collector_version() -> str:
+    from . import __version__
+    return __version__
+
 
 @dataclass
 class Donor:
@@ -144,6 +205,9 @@ class StoredOutcome:
     verification: str
     observed_at: str
     details: Optional[str] = None
+    outcome_class: Optional[str] = None     # [v0.9.6]
+    quality_level: Optional[str] = None     # [v0.9.6]
+    source_reference: Optional[str] = None  # [v0.9.6]
 
 
 @dataclass
@@ -156,6 +220,8 @@ class StoredPrediction:
     horizon: str
     frozen_at: str
     outcomes: List[StoredOutcome] = field(default_factory=list)
+    # [v0.9.6] Снимок на момент заморозки; пуст у предсказаний до v0.9.6.
+    snapshot: Dict = field(default_factory=dict)
 
 
 @dataclass
@@ -175,12 +241,19 @@ class EvidenceProfile:
     n_predictions: int
     n_predictions_with_outcome: int
     n_verified_outcomes: int  # verification = human или ground_truth
-    # [после v0.9.5] Среди наблюдений, у которых есть предсказания: одно наблюдение
+    # [v0.9.6] Среди наблюдений, у которых есть предсказания: одно наблюдение
     # (прогон) даёт по предсказанию на каждую цель, поэтому число
     # предсказаний не равно числу независимых прогонов.
     n_predicted_observations: int = 0
     n_predicted_agents: int = 0
     n_predicted_genomes: int = 0
+    # [v0.9.6] Повторы, не вошедшие в счёт: доказательства и исходы без
+    # отпечатка после миграции (совпали с уже записанными) и лишние
+    # предсказания той же цели для того же наблюдения.
+    n_duplicate_evidence: int = 0
+    n_duplicate_outcomes: int = 0
+    n_duplicate_predictions: int = 0
+    n_outcomes_without_class: int = 0
 
 
 def _now() -> datetime:
@@ -203,6 +276,72 @@ def _parse(ts: str) -> datetime:
 
 class EvidenceGraphMixin:
     """Методы Evidence Graph для EvidenceStore. Ожидает self._conn."""
+
+    # --- Schema ------------------------------------------------------------
+
+    def _migrate_graph_schema(self) -> None:
+        """[v0.9.6] Новые колонки графовых таблиц, однократное заполнение
+        их у старых строк, затем триггеры неизменяемости и уникальные
+        индексы. Заполнение детерминированно и без догадок: класс исхода
+        только по таблице соответствия, отпечаток по полям строки; то, что
+        так не определяется, остаётся NULL. Старые строки не удаляются."""
+        conn = self._conn
+        for table, columns in _EXPECTED_GRAPH_COLUMNS.items():
+            existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+            for column, sql_type in columns.items():
+                if column not in existing:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}")
+        conn.execute("CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        done = conn.execute("SELECT 1 FROM schema_meta WHERE key = ?", (_BACKFILL_MARKER,)).fetchone()
+        if not done:
+            for table in _APPEND_ONLY_TABLES:
+                conn.execute(f"DROP TRIGGER IF EXISTS {table}_no_update")
+                conn.execute(f"DROP TRIGGER IF EXISTS {table}_no_delete")
+            self._backfill_graph()
+            conn.execute("INSERT INTO schema_meta (key, value) VALUES (?, ?)", (_BACKFILL_MARKER, _iso(None)))
+        conn.executescript(GRAPH_CONSTRAINTS_SQL)
+        duplicates = conn.execute(
+            "SELECT COUNT(*) FROM (SELECT 1 FROM predictions GROUP BY observation_id, target, horizon HAVING COUNT(*) > 1)"
+        ).fetchone()[0]
+        if not duplicates:
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_predictions_obs_target ON predictions(observation_id, target, horizon)"
+            )
+        conn.commit()
+
+    def _backfill_graph(self) -> None:
+        conn = self._conn
+        for outcome_type, outcome_class in OUTCOME_CLASS_BY_TYPE.items():
+            conn.execute(
+                "UPDATE outcomes SET outcome_class = ? WHERE outcome_class IS NULL AND outcome_type = ?",
+                (outcome_class, outcome_type),
+            )
+        # Качество исхода: лучший уровень доказательства того же донора по
+        # тому же наблюдению (Q0 < ... < Q4 совпадает со строковым порядком).
+        conn.execute(
+            "UPDATE outcomes SET quality_level = ("
+            "  SELECT MAX(e.quality_level) FROM evidence e JOIN predictions p ON p.observation_id = e.observation_id"
+            "  WHERE p.id = outcomes.prediction_id AND e.donor_id = outcomes.donor_id"
+            ") WHERE quality_level IS NULL"
+        )
+        seen = {r[0] for r in conn.execute("SELECT fingerprint FROM evidence WHERE fingerprint IS NOT NULL")}
+        for row_id, obs_id, donor_id, evidence_type, reference in conn.execute(
+            "SELECT id, observation_id, donor_id, evidence_type, source_reference FROM evidence "
+            "WHERE fingerprint IS NULL ORDER BY id"
+        ).fetchall():
+            fp = _fingerprint(obs_id, donor_id, evidence_type, reference)
+            if fp not in seen:  # повтор оставляется без отпечатка и считается в профиле
+                seen.add(fp)
+                conn.execute("UPDATE evidence SET fingerprint = ? WHERE id = ?", (fp, row_id))
+        seen = {r[0] for r in conn.execute("SELECT fingerprint FROM outcomes WHERE fingerprint IS NOT NULL")}
+        for row_id, pred_id, donor_id, outcome_type, reference in conn.execute(
+            "SELECT id, prediction_id, donor_id, outcome_type, source_reference FROM outcomes "
+            "WHERE fingerprint IS NULL ORDER BY id"
+        ).fetchall():
+            fp = _fingerprint(pred_id, donor_id, outcome_type, reference)
+            if fp not in seen:
+                seen.add(fp)
+                conn.execute("UPDATE outcomes SET fingerprint = ? WHERE id = ?", (fp, row_id))
 
     # --- Donors ------------------------------------------------------------
 
@@ -291,11 +430,19 @@ class EvidenceGraphMixin:
             raise ValueError(f"quality_level должен быть одним из {tuple(QUALITY_LEVELS)}, получено {quality_level!r}")
         if confidence is not None and not (0.0 <= confidence <= 1.0):
             raise ValueError(f"confidence должен быть в [0, 1], получено {confidence}")
+        # [v0.9.6] Повтор того же доказательства не пишется второй строкой:
+        # иначе N растёт без новых данных. Возвращается id существующей.
+        fp = _fingerprint(observation_id, donor_id, evidence_type, source_reference)
+        existing = self._conn.execute("SELECT id FROM evidence WHERE fingerprint = ?", (fp,)).fetchone()
+        if existing:
+            return existing[0]
         cur = self._conn.execute(
             "INSERT INTO evidence (observation_id, donor_id, evidence_type, finding, quality_level, confidence, "
-            "source_reference, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "source_reference, metadata_json, created_at, collector_version, fingerprint) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (observation_id, donor_id, evidence_type, finding, quality_level, confidence, source_reference,
-             json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True), _iso(timestamp)),
+             json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True), _iso(timestamp),
+             _collector_version(), fp),
         )
         self._conn.commit()
         return cur.lastrowid
@@ -325,24 +472,75 @@ class EvidenceGraphMixin:
         target: str,
         horizon: str = "next_execution",
         frozen_at: Optional[datetime] = None,
+        task_version: Optional[str] = None,
+        environment_id: Optional[str] = None,
     ) -> int:
         """Замораживает Trust Score наблюдения как предсказание target на
         горизонте horizon. Score копируется из наблюдения в момент вызова
         и больше не меняется: предсказание не пересчитывается задним
         числом. Вызывайте ДО выполнения задачи; record_outcome() не
-        примет исход, наблюдённый раньше frozen_at."""
+        примет исход, наблюдённый раньше frozen_at.
+
+        [v0.9.6] Вместе со score замораживается снимок конфигурации
+        (версии модели доверия, генома, модели, промпта, фреймворка,
+        задача, окружение) с SHA-256. Таблица только на добавление;
+        второе предсказание той же цели на том же горизонте для того же
+        наблюдения это ValueError."""
+        columns = ("agent_id", "declared_score") + SNAPSHOT_OBSERVATION_FIELDS
         row = self._conn.execute(
-            "SELECT agent_id, declared_score FROM observations WHERE id = ?", (observation_id,)
+            f"SELECT {', '.join(columns)} FROM observations WHERE id = ?", (observation_id,)
         ).fetchone()
         if row is None:
             raise ValueError(f"наблюдение id={observation_id} не найдено")
+        if self._conn.execute(
+            "SELECT 1 FROM predictions WHERE observation_id = ? AND target = ? AND horizon = ?",
+            (observation_id, target, horizon),
+        ).fetchone():
+            raise ValueError(
+                f"у наблюдения id={observation_id} уже есть предсказание цели {target!r} на горизонте {horizon!r}"
+            )
+        frozen = _iso(frozen_at)
+        observed = dict(zip(SNAPSHOT_OBSERVATION_FIELDS, row[2:]))
+        snapshot = {
+            "observation_id": observation_id, "agent_id": row[0], "trust_score": row[1], "target": target,
+            "horizon": horizon, "frozen_at": frozen, "task_version": task_version,
+            "environment_id": environment_id, **observed,
+        }
+        snapshot_json = json.dumps(snapshot, ensure_ascii=False, sort_keys=True)
         cur = self._conn.execute(
-            "INSERT INTO predictions (observation_id, agent_id, trust_score, target, horizon, frozen_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (observation_id, row[0], row[1], target, horizon, _iso(frozen_at)),
+            "INSERT INTO predictions (observation_id, agent_id, trust_score, target, horizon, frozen_at, "
+            f"{', '.join(SNAPSHOT_OBSERVATION_FIELDS)}, task_version, environment_id, snapshot_json, snapshot_sha256) "
+            f"VALUES ({', '.join('?' * (8 + len(SNAPSHOT_OBSERVATION_FIELDS) + 2))})",
+            (observation_id, row[0], row[1], target, horizon, frozen, *observed.values(), task_version,
+             environment_id, snapshot_json, hashlib.sha256(snapshot_json.encode("utf-8")).hexdigest()),
         )
         self._conn.commit()
         return cur.lastrowid
+
+    def verify_prediction_integrity(self) -> Dict:
+        """[v0.9.6] Пересчитывает SHA-256 снимка каждого предсказания и
+        сверяет поля снимка с колонками. Предсказания до v0.9.6 снимка не
+        имеют и считаются отдельно, а не как нарушения."""
+        checked, violations, without = 0, [], 0
+        columns = ("id", "observation_id", "agent_id", "trust_score", "target", "horizon", "frozen_at",
+                   "task_version", "environment_id") + SNAPSHOT_OBSERVATION_FIELDS
+        for row in self._conn.execute(
+            f"SELECT {', '.join(columns)}, snapshot_json, snapshot_sha256 FROM predictions ORDER BY id"
+        ):
+            record = dict(zip(columns, row))
+            snapshot_json, digest = row[-2], row[-1]
+            if snapshot_json is None:
+                without += 1
+                continue
+            checked += 1
+            if hashlib.sha256(snapshot_json.encode("utf-8")).hexdigest() != digest:
+                violations.append({"prediction_id": record["id"], "problem": "snapshot_sha256"})
+                continue
+            snapshot = json.loads(snapshot_json)
+            mismatched = sorted(k for k, v in snapshot.items() if k in record and k != "id" and record[k] != v)
+            if mismatched:
+                violations.append({"prediction_id": record["id"], "problem": "fields", "fields": mismatched})
+        return {"checked": checked, "without_snapshot": without, "violations": violations}
 
     def record_outcome(
         self,
@@ -353,8 +551,17 @@ class EvidenceGraphMixin:
         verification: str = "automated",
         observed_at: Optional[datetime] = None,
         details: Optional[str] = None,
+        outcome_class: Optional[str] = None,
+        quality_level: Optional[str] = None,
+        source_reference: Optional[str] = None,
     ) -> int:
         """Исход от конкретного донора: произошло ли событие outcome_type.
+
+        [v0.9.6] outcome_class по умолчанию берётся из OUTCOME_CLASS_BY_TYPE
+        (для неизвестного типа остаётся пустым и считается в профиле);
+        quality_level по умолчанию: лучший уровень доказательства того же
+        донора по тому же наблюдению. Повтор того же исхода (тот же
+        отпечаток) не пишется, возвращается id существующего.
         observed_at, если передан, обязан быть строго позже frozen_at предсказания,
         иначе это не проверка предсказания, а подгонка под известный
         исход. Несколько исходов от разных доноров допустимы и хранятся
@@ -379,32 +586,54 @@ class EvidenceGraphMixin:
             )
         if details is not None:
             details = details[:200]  # AEP-001, Privacy
+        if outcome_class is None:
+            outcome_class = OUTCOME_CLASS_BY_TYPE.get(outcome_type)
+        elif outcome_class not in OUTCOME_CLASSES:
+            raise ValueError(f"outcome_class должен быть одним из {OUTCOME_CLASSES}, получено {outcome_class!r}")
+        if quality_level is None:
+            quality_level = self._conn.execute(
+                "SELECT MAX(e.quality_level) FROM evidence e JOIN predictions p ON p.observation_id = e.observation_id "
+                "WHERE p.id = ? AND e.donor_id = ?", (prediction_id, donor_id),
+            ).fetchone()[0]
+        elif quality_level not in QUALITY_LEVELS:
+            raise ValueError(f"quality_level должен быть одним из {tuple(QUALITY_LEVELS)}, получено {quality_level!r}")
+        fp = _fingerprint(prediction_id, donor_id, outcome_type, source_reference)
+        existing = self._conn.execute("SELECT id FROM outcomes WHERE fingerprint = ?", (fp,)).fetchone()
+        if existing:
+            return existing[0]
         cur = self._conn.execute(
-            "INSERT INTO outcomes (prediction_id, donor_id, outcome_type, occurred, verification, observed_at, details) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (prediction_id, donor_id, outcome_type, int(bool(occurred)), verification, observed.isoformat(), details),
+            "INSERT INTO outcomes (prediction_id, donor_id, outcome_type, occurred, verification, observed_at, details, "
+            "outcome_class, quality_level, source_reference, collector_version, fingerprint) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (prediction_id, donor_id, outcome_type, int(bool(occurred)), verification, observed.isoformat(), details,
+             outcome_class, quality_level, source_reference, _collector_version(), fp),
         )
         self._conn.commit()
         return cur.lastrowid
 
     def get_predictions(self, agent_id: Optional[str] = None) -> List[StoredPrediction]:
-        query = "SELECT id, observation_id, agent_id, trust_score, target, horizon, frozen_at FROM predictions"
+        query = ("SELECT id, observation_id, agent_id, trust_score, target, horizon, frozen_at, snapshot_json "
+                 "FROM predictions")
         params: list = []
         if agent_id is not None:
             query += " WHERE agent_id = ?"
             params.append(agent_id)
-        predictions = [StoredPrediction(*r) for r in self._conn.execute(query + " ORDER BY id", params)]
+        predictions = [
+            StoredPrediction(*r[:7], snapshot=json.loads(r[7]) if r[7] else {})
+            for r in self._conn.execute(query + " ORDER BY id", params)
+        ]
         by_id = {p.id: p for p in predictions}
         if by_id:
             placeholders = ",".join("?" * len(by_id))
             rows = self._conn.execute(
                 "SELECT o.prediction_id, o.id, o.donor_id, d.independence_group, o.outcome_type, o.occurred, "
-                "o.verification, o.observed_at, o.details FROM outcomes o JOIN donors d ON d.donor_id = o.donor_id "
+                "o.verification, o.observed_at, o.details, o.outcome_class, o.quality_level, o.source_reference "
+                "FROM outcomes o JOIN donors d ON d.donor_id = o.donor_id "
                 f"WHERE o.prediction_id IN ({placeholders}) ORDER BY o.id",
                 list(by_id),
             ).fetchall()
             for r in rows:
-                by_id[r[0]].outcomes.append(StoredOutcome(r[1], r[2], r[3], r[4], bool(r[5]), r[6], r[7], r[8]))
+                by_id[r[0]].outcomes.append(StoredOutcome(r[1], r[2], r[3], r[4], bool(r[5]), *r[6:12]))
         return predictions
 
     # --- Profile and export ------------------------------------------------
@@ -450,6 +679,23 @@ class EvidenceGraphMixin:
             n_predicted_observations=n_pred_obs,
             n_predicted_agents=n_pred_agents,
             n_predicted_genomes=n_pred_genomes,
+            n_duplicate_evidence=self._conn.execute(
+                "SELECT COUNT(*) FROM evidence WHERE fingerprint IS NULL"
+                + (" AND observation_id IN (SELECT id FROM observations WHERE agent_id = ?)" if agent_id else ""),
+                params,
+            ).fetchone()[0],
+            n_duplicate_outcomes=self._conn.execute(
+                f"SELECT COUNT(*) FROM outcomes o JOIN predictions p ON p.id = o.prediction_id "
+                f"WHERE o.fingerprint IS NULL {'AND p.agent_id = ?' if agent_id else ''}", params,
+            ).fetchone()[0],
+            n_duplicate_predictions=self._conn.execute(
+                f"SELECT COALESCE(SUM(c - 1), 0) FROM (SELECT COUNT(*) AS c FROM predictions p {pred_filter} "
+                f"GROUP BY observation_id, target, horizon HAVING COUNT(*) > 1)", params,
+            ).fetchone()[0],
+            n_outcomes_without_class=self._conn.execute(
+                f"SELECT COUNT(*) FROM outcomes o JOIN predictions p ON p.id = o.prediction_id "
+                f"WHERE o.outcome_class IS NULL {'AND p.agent_id = ?' if agent_id else ''}", params,
+            ).fetchone()[0],
         )
 
     def export_evidence_graph_json(self, path: str) -> str:

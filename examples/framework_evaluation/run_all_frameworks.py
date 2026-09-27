@@ -1,4 +1,4 @@
-# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.6 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 run_all_frameworks.py — автоматический раннер: авто-обнаружение всех
 фреймворков в папке frameworks/ + прогон + запись в EvidenceStore.

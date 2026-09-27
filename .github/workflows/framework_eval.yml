@@ -91,6 +91,16 @@ jobs:
         continue-on-error: true
         run: agenomics validate frameworks_evidence.db
 
+      # v0.9.6: полный отчёт по когорте текущей версии (артефакт) и
+      # прогресс накопления. Вердикт и уровень утверждений job не валят.
+      - name: Cohort report and accumulation scorecard
+        if: always()
+        continue-on-error: true
+        run: |
+          VERSION=$(python -c "import agenomics; print(agenomics.__version__)")
+          agenomics validate frameworks_evidence.db --trust-model-version "$VERSION" --report validation_report.md
+          agenomics scorecard frameworks_evidence.db --trust-model-version "$VERSION"
+
       # run_attempt в ключе: при ручном Re-run run_id тот же, ключ первой
       # попытки уже занят, и сохранение второй падало с "Unable to reserve
       # cache" (прогон 36091548267, attempt 2). Следующий прогон тогда
@@ -108,5 +118,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: frameworks-evidence-db-${{ github.run_id }}-${{ github.run_attempt }}
-          path: examples/framework_evaluation/frameworks_evidence.db
+          path: |
+            examples/framework_evaluation/frameworks_evidence.db
+            examples/framework_evaluation/validation_report.md
           retention-days: 90

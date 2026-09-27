@@ -1,4 +1,4 @@
-# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.6 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 Шаблон под Agno (бывший Phidata), переведён на Groq (бесплатный провайдер).
 Требует переменную окружения GROQ_API_KEY.

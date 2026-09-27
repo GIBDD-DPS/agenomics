@@ -1,4 +1,4 @@
-# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.6 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 full_pipeline.py. Склеивает захват лога, построение генома, TrustScorer
 и запись в EvidenceStore в один вызов.
@@ -23,6 +23,8 @@ full_pipeline.py. Склеивает захват лога, построение
 
 import hashlib
 import json
+import os
+import platform
 from datetime import datetime
 from typing import Callable, List, Optional
 
@@ -175,6 +177,15 @@ def _model_matches(declared: Optional[str], observed: Optional[str]) -> Optional
     return declared.endswith(observed) or observed.endswith(declared)
 
 
+def _environment_id() -> str:
+    """[v0.9.6] Где выполнялся прогон: попадает в снимок предсказания.
+    В GitHub Actions: образ раннера и версия Python, локально "local"."""
+    python = ".".join(platform.python_version_tuple()[:2])
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        return f"github-actions/{os.environ.get('ImageOS', os.environ.get('RUNNER_OS', 'unknown'))}/py{python}"
+    return f"local/py{python}"
+
+
 def _configuration_hash(**configuration) -> str:
     """[v0.9.0] Хэш конфигурации агента, а не его текущего состояния.
 
@@ -324,7 +335,10 @@ def run_framework_and_record(
         store.register_donor(**TASK_CHECKER_DONOR)
         targets.append(TARGET_TASK)
     prediction_ids = {
-        target: store.record_prediction(obs_id, target=target, horizon=PREDICTION_HORIZON, frozen_at=scored_at)
+        target: store.record_prediction(
+            obs_id, target=target, horizon=PREDICTION_HORIZON, frozen_at=scored_at,
+            task_version=prompt_version, environment_id=_environment_id(),
+        )
         for target in targets
     }
 
@@ -454,16 +468,24 @@ def run_framework_and_record(
         # не работал, и Validation Engine должен исключить все его
         # предсказания, а не только runtime (иначе "утечки не было" в
         # непрогнанном агенте выглядело бы как подтверждение безопасности).
+        # [v0.9.6] Класс и качество исхода задаются явно, ссылка на прогон
+        # общая для доказательств и исходов; у сбоя окружения класс ошибки
+        # в details (провайдер, зависимости и т. п.).
         if is_infrastructure:
-            store.record_outcome(prediction_id, RUNTIME_DONOR["donor_id"], "infrastructure_error", occurred=True)
+            store.record_outcome(prediction_id, RUNTIME_DONOR["donor_id"], "infrastructure_error", occurred=True,
+                                 outcome_class="INFRASTRUCTURE", quality_level="Q1", source_reference=reference,
+                                 details=f"error_class={error_class}")
             continue
         if target == TARGET_RUNTIME:
-            store.record_outcome(prediction_id, RUNTIME_DONOR["donor_id"], "execution_error", occurred=status == "error")
+            store.record_outcome(prediction_id, RUNTIME_DONOR["donor_id"], "execution_error", occurred=status == "error",
+                                 outcome_class="RUNTIME", quality_level="Q1", source_reference=reference)
         elif target == TARGET_SECURITY:
-            store.record_outcome(prediction_id, SCANNER_DONOR["donor_id"], "secret_leak", occurred=bool(leaked_secret_types))
+            store.record_outcome(prediction_id, SCANNER_DONOR["donor_id"], "secret_leak", occurred=bool(leaked_secret_types),
+                                 outcome_class="SECURITY", quality_level="Q2", source_reference=reference)
         elif target == TARGET_TASK and task_outcome is not None:
             store.record_outcome(prediction_id, TASK_CHECKER_DONOR["donor_id"], "task_failure",
-                                 occurred=task_outcome == "failure")
+                                 occurred=task_outcome == "failure", outcome_class="TASK", quality_level="Q3",
+                                 source_reference=reference)
 
     runs_total = len(past_leaks) + 1
     runtime_reliability = round(

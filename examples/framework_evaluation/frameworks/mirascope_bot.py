@@ -1,4 +1,4 @@
-# Agenomics 0.9.5 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
+# Agenomics 0.9.6 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
 Шаблон под Mirascope (v2, `mirascope.llm`), модель Groq.
 Требует переменную окружения GROQ_API_KEY (тот же ключ, что у остальных шаблонов).
