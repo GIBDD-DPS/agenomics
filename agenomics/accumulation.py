@@ -33,7 +33,7 @@ _LABELS = {
     "configurations": "конфигурации",
     "independence_groups": "группы независимости",
     "evidence_q3": "доказательства Q3",
-    "evidence_q4": "доказательства Q4",
+    "evidence_q4": "доказательства и исходы Q4",
 }
 
 
@@ -64,6 +64,12 @@ def accumulation_scorecard(store, trust_model_versions: Optional[Sequence[str]] 
         "SELECT e.quality_level, COUNT(*) FROM evidence e JOIN observations o ON o.id = e.observation_id "
         f"WHERE e.fingerprint IS NOT NULL{version_filter} GROUP BY e.quality_level", params,
     ).fetchall())
+    # Q4 у исходов (внешнее подтверждение), не только у доказательств
+    q4_outcomes = conn.execute(
+        "SELECT COUNT(*) FROM outcomes x JOIN predictions p ON p.id = x.prediction_id "
+        "JOIN observations o ON o.id = p.observation_id "
+        f"WHERE x.quality_level = 'Q4' AND x.fingerprint IS NOT NULL{version_filter}", params,
+    ).fetchone()[0]
     groups = conn.execute(
         "SELECT COUNT(DISTINCT d.independence_group) FROM outcomes x JOIN donors d ON d.donor_id = x.donor_id "
         f"JOIN predictions p ON p.id = x.prediction_id JOIN observations o ON o.id = p.observation_id "
@@ -71,7 +77,7 @@ def accumulation_scorecard(store, trust_model_versions: Optional[Sequence[str]] 
     ).fetchone()[0]
     current: Dict[str, int] = {
         "observations": n_obs, "agents": n_agents, "configurations": n_genomes,
-        "independence_groups": groups, "evidence_q3": evidence.get("Q3", 0), "evidence_q4": evidence.get("Q4", 0),
+        "independence_groups": groups, "evidence_q3": evidence.get("Q3", 0), "evidence_q4": evidence.get("Q4", 0) + q4_outcomes,
     }
     rows = [_row(metric, _LABELS[metric], value, ACCUMULATION_TARGETS[metric]) for metric, value in current.items()]
     reports = validate_all_targets(store, trust_model_versions=trust_model_versions)

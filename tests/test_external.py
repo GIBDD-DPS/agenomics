@@ -73,6 +73,10 @@ def test_successful_confirmation_is_q4_ground_truth():
     assert (outcome.quality_level, outcome.verification, outcome.outcome_class) == ("Q4", "ground_truth", "TASK")
     assert outcome.source_reference == "match-18492" and "api_assertion" in outcome.details
     assert store.evidence_profile().n_verified_outcomes == 1
+    # Q4 исхода видно в профиле и в scorecard, хотя доказательства Q4 нет
+    from agenomics import accumulation_scorecard
+    assert store.evidence_profile().outcomes_by_quality["Q4"] == 1
+    assert {r.metric: r.current for r in accumulation_scorecard(store)}["evidence_q4"] == 1
 
 
 def test_pending_outcome_and_missing_reference():

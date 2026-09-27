@@ -750,6 +750,7 @@ def evidence_profile_text(profile, reports: Optional[Dict[str, "ValidationReport
         f"подтверждённых человеком/реальностью исходов {profile.n_verified_outcomes}",
         f"  Доказательств {profile.n_evidence} ({quality}), доноров {profile.n_donors}, "
         f"групп независимости {profile.n_independence_groups}",
+        f"  Исходы по качеству: " + ", ".join(f"{q} {n}" for q, n in profile.outcomes_by_quality.items()),
     ]
     if reports:
         events = ", ".join(
@@ -836,8 +837,8 @@ def validation_report_markdown(profile, reports: Dict[str, "ValidationReport"], 
         f"{profile.n_outcomes_without_class}",
         "",
         "## Доказательства",
-        "| Уровень | Число |", "|---|---:|",
-        *[f"| {q} | {n} |" for q, n in profile.evidence_by_quality.items()],
+        "| Уровень | Доказательств | Исходов |", "|---|---:|---:|",
+        *[f"| {q} | {n} | {profile.outcomes_by_quality.get(q, 0)} |" for q, n in profile.evidence_by_quality.items()],
         "",
         f"Группы независимости ({profile.n_independence_groups}): "
         + ", ".join(f"{g} {n}" for g, n in sorted(profile.independence_groups.items())),

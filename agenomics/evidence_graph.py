@@ -254,6 +254,10 @@ class EvidenceProfile:
     n_duplicate_outcomes: int = 0
     n_duplicate_predictions: int = 0
     n_outcomes_without_class: int = 0
+    # Качество самих исходов. Q4 бывает только у исходов (внешнее
+    # подтверждение, record_external_outcome), у доказательств его может не
+    # быть вовсе, поэтому считать Q4 только по доказательствам нельзя.
+    outcomes_by_quality: Dict[str, int] = field(default_factory=dict)
 
 
 def _now() -> datetime:
@@ -692,6 +696,14 @@ class EvidenceGraphMixin:
                 f"SELECT COALESCE(SUM(c - 1), 0) FROM (SELECT COUNT(*) AS c FROM predictions p {pred_filter} "
                 f"GROUP BY observation_id, target, horizon HAVING COUNT(*) > 1)", params,
             ).fetchone()[0],
+            outcomes_by_quality={
+                level: self._conn.execute(
+                    f"SELECT COUNT(*) FROM outcomes o JOIN predictions p ON p.id = o.prediction_id "
+                    f"WHERE o.quality_level = ? AND o.fingerprint IS NOT NULL {'AND p.agent_id = ?' if agent_id else ''}",
+                    [level] + params,
+                ).fetchone()[0]
+                for level in QUALITY_LEVELS
+            },
             n_outcomes_without_class=self._conn.execute(
                 f"SELECT COUNT(*) FROM outcomes o JOIN predictions p ON p.id = o.prediction_id "
                 f"WHERE o.outcome_class IS NULL {'AND p.agent_id = ?' if agent_id else ''}", params,
