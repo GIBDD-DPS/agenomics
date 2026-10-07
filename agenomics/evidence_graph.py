@@ -59,7 +59,14 @@ OUTCOME_CLASS_BY_TYPE = {
     "secret_leak": "SECURITY",
     "execution_error": "RUNTIME",
     "infrastructure_error": "INFRASTRUCTURE",
+    "prompt_injection_disclosure": "SECURITY",
 }
+
+# [Unreleased] Тип когорты предсказания (docs/specs/validation-data-acquisition-v1.md,
+# раздел 3). Предсказания без типа (записанные до него) считаются natural:
+# других когорт тогда не было. external: исходы Q4 из внешней системы.
+COHORT_TYPES = ("natural", "stress_runtime", "stress_security", "stress_task", "external")
+DEFAULT_COHORT = "natural"
 
 # Поля снимка предсказания: копируются из наблюдения в момент заморозки.
 SNAPSHOT_OBSERVATION_FIELDS = (
@@ -132,6 +139,7 @@ _EXPECTED_GRAPH_COLUMNS = {
         **{f: "TEXT" for f in SNAPSHOT_OBSERVATION_FIELDS},
         "task_version": "TEXT", "environment_id": "TEXT",
         "snapshot_json": "TEXT", "snapshot_sha256": "TEXT",
+        "cohort_type": "TEXT",  # [Unreleased]
     },
     "outcomes": {
         "outcome_class": "TEXT", "quality_level": "TEXT", "source_reference": "TEXT",
@@ -222,6 +230,8 @@ class StoredPrediction:
     outcomes: List[StoredOutcome] = field(default_factory=list)
     # [v0.9.6] Снимок на момент заморозки; пуст у предсказаний до v0.9.6.
     snapshot: Dict = field(default_factory=dict)
+    # [Unreleased] Тип когорты; у записей без него natural.
+    cohort_type: str = DEFAULT_COHORT
 
 
 @dataclass
@@ -478,6 +488,7 @@ class EvidenceGraphMixin:
         frozen_at: Optional[datetime] = None,
         task_version: Optional[str] = None,
         environment_id: Optional[str] = None,
+        cohort_type: Optional[str] = None,
     ) -> int:
         """Замораживает Trust Score наблюдения как предсказание target на
         горизонте horizon. Score копируется из наблюдения в момент вызова
@@ -489,7 +500,13 @@ class EvidenceGraphMixin:
         (версии модели доверия, генома, модели, промпта, фреймворка,
         задача, окружение) с SHA-256. Таблица только на добавление;
         второе предсказание той же цели на том же горизонте для того же
-        наблюдения это ValueError."""
+        наблюдения это ValueError.
+
+        [Unreleased] cohort_type (COHORT_TYPES) входит в снимок и его
+        SHA-256, если задан. Без него предсказание считается natural, а
+        снимок остаётся прежней формы."""
+        if cohort_type is not None and cohort_type not in COHORT_TYPES:
+            raise ValueError(f"cohort_type должен быть одним из {COHORT_TYPES}, получено {cohort_type!r}")
         columns = ("agent_id", "declared_score") + SNAPSHOT_OBSERVATION_FIELDS
         row = self._conn.execute(
             f"SELECT {', '.join(columns)} FROM observations WHERE id = ?", (observation_id,)
@@ -510,13 +527,15 @@ class EvidenceGraphMixin:
             "horizon": horizon, "frozen_at": frozen, "task_version": task_version,
             "environment_id": environment_id, **observed,
         }
+        if cohort_type is not None:
+            snapshot["cohort_type"] = cohort_type
         snapshot_json = json.dumps(snapshot, ensure_ascii=False, sort_keys=True)
         cur = self._conn.execute(
             "INSERT INTO predictions (observation_id, agent_id, trust_score, target, horizon, frozen_at, "
-            f"{', '.join(SNAPSHOT_OBSERVATION_FIELDS)}, task_version, environment_id, snapshot_json, snapshot_sha256) "
-            f"VALUES ({', '.join('?' * (8 + len(SNAPSHOT_OBSERVATION_FIELDS) + 2))})",
+            f"{', '.join(SNAPSHOT_OBSERVATION_FIELDS)}, task_version, environment_id, snapshot_json, snapshot_sha256, "
+            f"cohort_type) VALUES ({', '.join('?' * (8 + len(SNAPSHOT_OBSERVATION_FIELDS) + 3))})",
             (observation_id, row[0], row[1], target, horizon, frozen, *observed.values(), task_version,
-             environment_id, snapshot_json, hashlib.sha256(snapshot_json.encode("utf-8")).hexdigest()),
+             environment_id, snapshot_json, hashlib.sha256(snapshot_json.encode("utf-8")).hexdigest(), cohort_type),
         )
         self._conn.commit()
         return cur.lastrowid
@@ -527,7 +546,7 @@ class EvidenceGraphMixin:
         имеют и считаются отдельно, а не как нарушения."""
         checked, violations, without = 0, [], 0
         columns = ("id", "observation_id", "agent_id", "trust_score", "target", "horizon", "frozen_at",
-                   "task_version", "environment_id") + SNAPSHOT_OBSERVATION_FIELDS
+                   "task_version", "environment_id", "cohort_type") + SNAPSHOT_OBSERVATION_FIELDS
         for row in self._conn.execute(
             f"SELECT {', '.join(columns)}, snapshot_json, snapshot_sha256 FROM predictions ORDER BY id"
         ):
@@ -542,6 +561,8 @@ class EvidenceGraphMixin:
                 continue
             snapshot = json.loads(snapshot_json)
             mismatched = sorted(k for k, v in snapshot.items() if k in record and k != "id" and record[k] != v)
+            if record["cohort_type"] is not None and "cohort_type" not in snapshot:
+                mismatched.append("cohort_type")  # тип когорты задан мимо снимка
             if mismatched:
                 violations.append({"prediction_id": record["id"], "problem": "fields", "fields": mismatched})
         return {"checked": checked, "without_snapshot": without, "violations": violations}
@@ -616,14 +637,14 @@ class EvidenceGraphMixin:
         return cur.lastrowid
 
     def get_predictions(self, agent_id: Optional[str] = None) -> List[StoredPrediction]:
-        query = ("SELECT id, observation_id, agent_id, trust_score, target, horizon, frozen_at, snapshot_json "
-                 "FROM predictions")
+        query = ("SELECT id, observation_id, agent_id, trust_score, target, horizon, frozen_at, snapshot_json, "
+                 "cohort_type FROM predictions")
         params: list = []
         if agent_id is not None:
             query += " WHERE agent_id = ?"
             params.append(agent_id)
         predictions = [
-            StoredPrediction(*r[:7], snapshot=json.loads(r[7]) if r[7] else {})
+            StoredPrediction(*r[:7], snapshot=json.loads(r[7]) if r[7] else {}, cohort_type=r[8] or DEFAULT_COHORT)
             for r in self._conn.execute(query + " ORDER BY id", params)
         ]
         by_id = {p.id: p for p in predictions}

@@ -42,7 +42,7 @@ from .evaluation import RealWorldEvaluationLayer, Observation, TrustRealityRepor
 from .evidence import EvidenceStore, StoredObservation, replay_into_evaluation_layer, AEP_SCHEMA_VERSION
 from .evidence_graph import (
     Donor, StoredEvidence, StoredPrediction, StoredOutcome, EvidenceProfile,
-    DONOR_TYPES, QUALITY_LEVELS, VERIFICATION_METHODS,
+    DONOR_TYPES, QUALITY_LEVELS, VERIFICATION_METHODS, COHORT_TYPES,
 )
 from .hooks import EvidenceStoreHook
 from .accumulation import ACCUMULATION_TARGETS, ScorecardRow, accumulation_scorecard, scorecard_text
@@ -52,7 +52,7 @@ from .external import (
 from .validation import (
     validate, validate_all_targets, prediction_targets, build_pairs, validation_report_text,
     ValidationReport, ValidationPair, VERDICTS,
-    validation_report_markdown, PROTOCOL_THRESHOLDS, CLAIM_LEVELS,
+    validation_report_markdown, PROTOCOL_THRESHOLDS, CLAIM_LEVELS, donor_agreement,
 )
 from .adversarial import (
     AdversarialSuite, AdversarialReport, AxisEstimate, ProbeResult, adversarial_report_text,
@@ -79,11 +79,11 @@ __all__ = [
     "RealWorldEvaluationLayer", "Observation", "TrustRealityReport",
     "EvidenceStore", "StoredObservation", "replay_into_evaluation_layer", "AEP_SCHEMA_VERSION",
     "Donor", "StoredEvidence", "StoredPrediction", "StoredOutcome", "EvidenceProfile",
-    "DONOR_TYPES", "QUALITY_LEVELS", "VERIFICATION_METHODS",
+    "DONOR_TYPES", "QUALITY_LEVELS", "VERIFICATION_METHODS", "COHORT_TYPES",
     "ACCUMULATION_TARGETS", "ScorecardRow", "accumulation_scorecard", "scorecard_text",
     "ExternalOutcomeVerifier", "ExternalVerification", "PredictionView", "record_external_outcome",
     "validate", "validate_all_targets", "prediction_targets", "build_pairs", "validation_report_text", "ValidationReport", "ValidationPair", "VERDICTS",
-    "validation_report_markdown", "PROTOCOL_THRESHOLDS", "CLAIM_LEVELS",
+    "validation_report_markdown", "PROTOCOL_THRESHOLDS", "CLAIM_LEVELS", "donor_agreement",
     "AdversarialSuite", "AdversarialReport", "AxisEstimate", "ProbeResult", "adversarial_report_text",
     "EvidenceStoreHook",
     "trust_report", "compatibility_report", "trust_report_docx",
