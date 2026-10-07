@@ -1,46 +1,40 @@
 # Agenomics 0.9.6 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
-Шаблон под LlamaIndex, переведён на Groq (бесплатный провайдер).
-Требует пакет llama-index-llms-groq и переменную окружения GROQ_API_KEY.
+Шаблон под LlamaIndex (FunctionAgent) на Groq.
+Модель, задачу и системный промпт задаёт раннер (conditions.RunContext):
+шаблон только строит агента своего фреймворка и вызывает его. Требует
+GROQ_API_KEY.
 """
 
 DOMAIN = "content"
 AUTONOMY = "advisory"
-MODEL_VERSION = "groq/openai/gpt-oss-20b"  # провайдер/модель, записывается в EvidenceStore.model_version
 FRAMEWORK_PACKAGE = "llama-index-core"  # имя дистрибутива для importlib.metadata.version()
-PROMPT_VERSION = "task-v1"  # задача с ответом из инструмента, без изменений с v0.9.2
 CI_TIER = "required"  # required: падение валит CI; experimental: только в отчёте
 
-
-def run():
+def run(ctx):
     import asyncio
     from llama_index.core.agent.workflow import FunctionAgent
-    from llama_index.core.tools import FunctionTool
     from llama_index.llms.groq import Groq
-
-    def get_weather(location: str) -> str:
-        """Get the weather for a given location."""
-        return f"The weather in {location} is cloudy with a high of 15C."
 
     async def _run():
         agent = FunctionAgent(
-            tools=[FunctionTool.from_defaults(fn=get_weather)],
-            llm=Groq(model="openai/gpt-oss-20b"),
-            system_prompt="You are a helpful AI assistant.",
+            tools=[],
+            llm=Groq(model=ctx.model, api_key=ctx.api_key, api_base=ctx.base_url),
+            system_prompt=ctx.system,
         )
-        response = await agent.run("Какая погода в Париже?")
-        return response
+        return await agent.run(ctx.prompt)
 
     result = asyncio.run(_run())
     print(result)
     return result
 
 
-def check(result) -> bool:
-    """Инструмент get_weather возвращает "cloudy with a high of 15C":
-    правильный ответ обязан содержать 15. Проверяется ответ агента
-    (result.response.content), а не вывод инструмента."""
-    import re
+def answer(result) -> str:
+    """Ответ агента (result.response.content), не вывод инструментов.
+    Сообщение есть, а текста нет (так LlamaIndex отвечает, проглотив битый
+    ответ модели): это пустой ответ, то есть провал задачи. Нет самого
+    сообщения: форма результата не та, исход неизвестен."""
     response = getattr(result, "response", None)
-    text = getattr(response, "content", None) if response is not None else None
-    return re.search(r"(?<!\d)15(?!\d)", str(text or "")) is not None
+    if response is None:
+        raise ValueError(f"неожиданная форма результата: {type(result).__name__}")  # исход неизвестен, а не провал агента
+    return str(getattr(response, "content", None) or "")
