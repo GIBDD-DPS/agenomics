@@ -41,11 +41,23 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from .evaluation import _evidence_strength
+from .evidence_graph import COHORT_TYPES, DEFAULT_COHORT
 
 # Прогон, упавший из-за окружения, не проверяет поведение агента: агент
 # не работал. Такие предсказания исключаются целиком, а не считаются
 # "без инцидента" по остальным донорам.
 DEFAULT_EXCLUDED_OUTCOME_TYPES = ("infrastructure_error",)
+
+# [Unreleased] Когорты по умолчанию: только natural. Стресс-когорты и
+# внешние исходы проверяются отдельно, смесь только явно ("all"), см.
+# docs/specs/validation-data-acquisition-v1.md, раздел 3.
+DEFAULT_COHORT_TYPES = (DEFAULT_COHORT,)
+ALL_COHORTS = "all"
+
+# [Unreleased] Цели, где два донора оценивают одно и то же событие, и их
+# согласие имеет смысл. У security доноры смотрят на разное (паттерн
+# секрета в логе и раскрытие канарейки), поэтому согласие не считается.
+DONOR_AGREEMENT_TARGETS = ("task_failure",)
 
 # [v0.9.5] Цели, которые больше не создаются, но остаются в накопленных
 # базах. Отчёт по ним строится (данные есть), но помечается и идёт после
@@ -90,6 +102,8 @@ class ValidationPair:
     independence_groups: Tuple[str, ...] = ()
     verified: bool = False                    # хотя бы один исход human/ground_truth
     max_quality: Optional[str] = None         # [v0.9.6] лучший уровень качества исходов пары
+    cohort_type: str = DEFAULT_COHORT         # [Unreleased]
+    group_outcomes: Dict[str, bool] = field(default_factory=dict)  # [Unreleased] исход по каждой группе
 
     @property
     def risk(self) -> float:
@@ -176,6 +190,13 @@ class ValidationReport:
     n_q4_pairs: int = 0
     period_start: Optional[str] = None
     period_end: Optional[str] = None
+    # [Unreleased] Когорты в выборке и предупреждение, если они смешаны.
+    cohort_types: List[str] = field(default_factory=list)
+    cohort_warning: Optional[str] = None
+    # [Unreleased] Согласие доноров (DONOR_AGREEMENT_TARGETS): сколько пар
+    # оценили две и больше групп, сколько из них одинаково, и расхождения
+    # вида "llm_judge=0,task_checker=1" -> число пар.
+    donor_agreement: Optional[Dict] = None
 
 
 # --- Сборка пар ------------------------------------------------------------
@@ -195,6 +216,7 @@ def _collect_pairs(
     agent_id: Optional[str],
     trust_model_versions: Optional[Sequence[str]] = None,
     min_quality: Optional[str] = None,
+    cohort_types: Optional[Sequence[str]] = DEFAULT_COHORT_TYPES,
 ) -> Tuple[List[ValidationPair], int]:
     genome_by_obs, version_by_obs = {}, {}
     for obs_id, genome_hash, version in store._conn.execute(
@@ -209,6 +231,8 @@ def _collect_pairs(
         # [v0.9.6] Когорта по версии модели доверия: база накопительная, и
         # прогоны разных версий Trust Score проверяются по отдельности.
         if trust_model_versions is not None and version_by_obs.get(p.observation_id) not in trust_model_versions:
+            continue
+        if cohort_types is not None and p.cohort_type not in cohort_types:
             continue
         frozen = _parse_time(p.frozen_at)
         # [v0.9.2] Повторная проверка порядка времени. record_outcome() уже
@@ -243,6 +267,9 @@ def _collect_pairs(
             verified=any(o.verification in ("human", "ground_truth") for o in matching),
             max_quality=max((o.quality_level for o in matching if o.quality_level), default=None,
                             key=QUALITY_ORDER.index),
+            cohort_type=p.cohort_type,
+            group_outcomes={g: any(o.occurred for o in matching if o.independence_group == g)
+                            for g in sorted({o.independence_group for o in matching})},
         ))
     return pairs, n_rejected
 
@@ -255,6 +282,7 @@ def build_pairs(
     independence_groups: Optional[Sequence[str]] = None,
     verification: Optional[Sequence[str]] = None,
     agent_id: Optional[str] = None,
+    cohort_types: Optional[Sequence[str]] = DEFAULT_COHORT_TYPES,
 ) -> List[ValidationPair]:
     """Пары (замороженный score, произошло ли событие).
 
@@ -266,7 +294,23 @@ def build_pairs(
     предсказания, отбрасываются (v0.9.2); равенство допускается, как и в
     record_outcome() для времени по умолчанию."""
     return _collect_pairs(store, target, outcome_types, exclude_outcome_types,
-                          independence_groups, verification, agent_id)[0]
+                          independence_groups, verification, agent_id,
+                          cohort_types=_normalize_cohorts(cohort_types))[0]
+
+
+def _normalize_cohorts(cohort_types) -> Optional[Tuple[str, ...]]:
+    """None или "all" (в том числе в списке) значит все когорты; иначе
+    кортеж известных типов из COHORT_TYPES."""
+    if cohort_types is None:
+        return None
+    if isinstance(cohort_types, str):
+        cohort_types = (cohort_types,)
+    if ALL_COHORTS in cohort_types:
+        return None
+    unknown = [c for c in cohort_types if c not in COHORT_TYPES]
+    if unknown:
+        raise ValueError(f"неизвестные типы когорт {unknown}; допустимы {COHORT_TYPES} или {ALL_COHORTS!r}")
+    return tuple(cohort_types)
 
 
 def prediction_targets(store) -> List[str]:
@@ -541,6 +585,7 @@ def validate(
     agent_id: Optional[str] = None,
     trust_model_versions: Optional[Sequence[str]] = None,
     min_quality: Optional[str] = None,
+    cohort_types: Optional[Sequence[str]] = DEFAULT_COHORT_TYPES,
     calibration_fraction: float = 0.6,
     min_test_pairs: int = 30,
     min_class_count: int = 5,
@@ -550,6 +595,7 @@ def validate(
     """Сопоставляет замороженные предсказания с исходами. См. docstring модуля."""
     if not 0.0 < calibration_fraction < 1.0:
         raise ValueError("calibration_fraction должен быть в (0, 1)")
+    cohort_types = _normalize_cohorts(cohort_types)
     filters = {
         "target": target, "outcome_types": list(outcome_types) if outcome_types else None,
         "exclude_outcome_types": list(exclude_outcome_types),
@@ -557,6 +603,7 @@ def validate(
         "verification": list(verification) if verification else None, "agent_id": agent_id,
         "trust_model_versions": list(trust_model_versions) if trust_model_versions else None,
         "min_quality": min_quality,
+        "cohort_types": list(cohort_types) if cohort_types is not None else [ALL_COHORTS],
     }
     if min_quality is not None and min_quality not in QUALITY_ORDER:
         raise ValueError(f"min_quality должен быть одним из {QUALITY_ORDER}, получено {min_quality!r}")
@@ -571,7 +618,7 @@ def validate(
             )
     pairs, n_rejected = _collect_pairs(
         store, target, outcome_types, exclude_outcome_types, independence_groups, verification, agent_id,
-        trust_model_versions, min_quality,
+        trust_model_versions, min_quality, cohort_types,
     )
     labels = [p.occurred for p in pairs]
     risks = [p.risk for p in pairs]
@@ -626,9 +673,36 @@ def validate(
                 f"одна группа независимости даёт {report.max_group_share:.0%} подтверждений"
             )
     report.n_q4_pairs = sum(1 for p in pairs if p.max_quality == "Q4")
+    report.cohort_types = sorted({p.cohort_type for p in pairs})
+    if len(report.cohort_types) > 1:
+        report.cohort_warning = (
+            f"в выборке смешаны когорты {report.cohort_types}: вывод по протоколу делается по каждой отдельно"
+        )
+    if target in DONOR_AGREEMENT_TARGETS:
+        report.donor_agreement = donor_agreement(pairs)
     if _with_claims:
         report.claim_level, report.claim_blockers = _claim_level(store, report, target, filters, calibration_fraction)
     return report
+
+
+def donor_agreement(pairs: Sequence[ValidationPair]) -> Dict:
+    """[Unreleased] Согласие групп независимости на парах, которые оценили
+    две и больше групп. Расхождение говорит о проблеме одного из доноров
+    и разбирается отдельно; голосованием доноров исход не сводится."""
+    compared = [p for p in pairs if len(p.group_outcomes) >= 2]
+    disagreements: Dict[str, int] = {}
+    n_agree = 0
+    for p in compared:
+        if len(set(p.group_outcomes.values())) == 1:
+            n_agree += 1
+            continue
+        key = ",".join(f"{g}={int(v)}" for g, v in sorted(p.group_outcomes.items()))
+        disagreements[key] = disagreements.get(key, 0) + 1
+    return {
+        "n_compared": len(compared), "n_agree": n_agree,
+        "agreement_rate": round(n_agree / len(compared), 4) if compared else None,
+        "disagreements": dict(sorted(disagreements.items())),
+    }
 
 
 def validate_all_targets(store, **kwargs) -> Dict[str, "ValidationReport"]:
@@ -728,7 +802,7 @@ def _verdict(report: ValidationReport, min_test_pairs: int, min_class_count: int
     return "signal_beats_baseline", (
         f"ROC-AUC {auc} ({ci_text}) выше baseline 'историческая частота агента' ({baseline_auc}{diff_text}). "
         f"Это результат на этих данных и этом target, а не доказанная предсказательная валидность: "
-        f"уровень доказательств '{report.evidence_strength}', агентов {report.n_agents}."
+        f"объём выборки '{report.evidence_strength}', агентов {report.n_agents}."
     )
 
 
@@ -762,6 +836,9 @@ def evidence_profile_text(profile, reports: Optional[Dict[str, "ValidationReport
         if versions:
             lines.append(f"  Цели проверяются только по trust_model_version {', '.join(versions)}; "
                          f"строки выше описывают всю базу")
+        cohorts = next(iter(reports.values())).filters.get("cohort_types")
+        if cohorts:
+            lines.append(f"  Когорты: {', '.join(cohorts)} (по умолчанию natural; --cohort-type выбирает другие)")
     return "\n".join(lines)
 
 
@@ -777,7 +854,8 @@ def validation_report_text(report: ValidationReport) -> str:
         lines.append(f"  Устаревшая цель: {report.legacy_note}")
     lines += [
         f"  Пары: {report.n_pairs} (с событием {report.n_positive}), агентов {report.n_agents}, "
-        f"конфигураций {report.n_configurations}, уровень '{report.evidence_strength}'",
+        f"конфигураций {report.n_configurations}, объём выборки '{report.evidence_strength}' "
+        f"(только по числу пар; что можно утверждать, см. уровень утверждений)",
         f"  Независимость: доноров {report.n_donors}, групп {report.n_independence_groups} "
         f"{report.independence_groups}, подтверждённых человеком/реальностью пар {report.n_verified_pairs}"
         + (f", отброшено исходов раньше заморозки: {report.n_rejected_outcomes}" if report.n_rejected_outcomes else ""),
@@ -786,6 +864,12 @@ def validation_report_text(report: ValidationReport) -> str:
         lines.append(f"    Пар по группам: {report.outcomes_per_group}, доля крупнейшей {report.max_group_share}")
     if report.independence_warning:
         lines.append(f"    ⚠️ {report.independence_warning}")
+    if report.donor_agreement and report.donor_agreement["n_compared"]:
+        a = report.donor_agreement
+        lines.append(f"    Согласие доноров: {a['n_agree']} из {a['n_compared']} ({a['agreement_rate']}), "
+                     f"расхождения {a['disagreements'] or 'нет'}")
+    if report.cohort_warning:
+        lines.append(f"  ⚠️ {report.cohort_warning}")
     lines += [
         f"  Вся выборка: ROC-AUC {o.roc_auc}, PR-AUC {o.pr_auc} (base rate {o.base_rate}), "
         f"Brier {o.brier}, ECE {report.expected_calibration_error}",
@@ -824,9 +908,10 @@ def validation_report_markdown(profile, reports: Dict[str, "ValidationReport"], 
         "",
         "## Когорта",
         f"- trust_model_version: {', '.join(filters.get('trust_model_versions') or []) or 'все версии'}",
+        f"- тип когорты: {', '.join(filters.get('cohort_types') or [DEFAULT_COHORT])}",
         f"- период: {min(starts) if starts else '—'} … {max(ends) if ends else '—'}",
         f"- фильтры: " + ", ".join(f"{k}={v}" for k, v in filters.items()
-                                   if v and k not in ("target", "trust_model_versions")),
+                                   if v and k not in ("target", "trust_model_versions", "cohort_types")),
         "",
         "## Объём",
         f"- наблюдений в базе: {profile.n_observations}, агентов {profile.n_agents}",
@@ -870,6 +955,12 @@ def validation_report_markdown(profile, reports: Dict[str, "ValidationReport"], 
                 f"{r.outcomes_per_group}" + (f"; ⚠️ {r.independence_warning}" if r.independence_warning else ""),
                 f"- вся выборка: ROC-AUC {r.overall.roc_auc}, PR-AUC {r.overall.pr_auc}, Brier {r.overall.brier}",
             ]
+            if r.donor_agreement and r.donor_agreement["n_compared"]:
+                a = r.donor_agreement
+                md.append(f"- согласие доноров: {a['n_agree']} из {a['n_compared']} ({a['agreement_rate']}), "
+                          f"расхождения {a['disagreements'] or 'нет'}")
+            if r.cohort_warning:
+                md.append(f"- ⚠️ {r.cohort_warning}")
             if h:
                 md += [
                     f"- holdout: калибровка {h.calibration_n}, проверка {h.test_n}; ROC-AUC {h.trust_score.roc_auc}, "

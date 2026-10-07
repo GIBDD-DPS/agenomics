@@ -148,6 +148,8 @@ def cmd_validate(args) -> int:
         min_quality=args.min_quality,
         calibration_fraction=args.calibration_fraction,
     )
+    if args.cohort_type:
+        kwargs["cohort_types"] = args.cohort_type
     try:
         # Без --target отчёт строится по каждой цели отдельно (v0.9.2):
         # одна оценка записана под каждую цель, и смешивать их нельзя.
@@ -157,6 +159,9 @@ def cmd_validate(args) -> int:
             reports = validate_all_targets(store, **kwargs)
         profile = store.evidence_profile(args.agent_id)
         integrity = store.verify_prediction_integrity()
+    except ValueError as exc:
+        print(f"Ошибка: {exc}", file=sys.stderr)
+        return 2
     finally:
         store.close()
     if args.report:
@@ -179,20 +184,32 @@ def cmd_validate(args) -> int:
 def cmd_scorecard(args) -> int:
     """[v0.9.6] Прогресс накопления доказательств к ориентирам (accumulation.py)."""
     from dataclasses import asdict
-    from .accumulation import accumulation_scorecard, scorecard_text
+    from .accumulation import accumulation_scorecard, cohorts_in_store, scorecard_text
 
     if not Path(args.db_path).exists():
         print(f"Ошибка: файл базы не найден: {args.db_path}", file=sys.stderr)
         return 1
     store = EvidenceStore(args.db_path)
     try:
-        rows = accumulation_scorecard(store, trust_model_versions=args.trust_model_version)
+        # [Unreleased] По scorecard на каждую выбранную когорту, без суммы:
+        # "all" значит каждая когорта, которая есть в базе, отдельно.
+        cohorts = args.cohort_type or ["natural"]
+        if "all" in cohorts:
+            cohorts = cohorts_in_store(store) or ["natural"]
+        tables = {c: accumulation_scorecard(store, trust_model_versions=args.trust_model_version, cohort_type=c)
+                  for c in cohorts}
+    except ValueError as exc:
+        print(f"Ошибка: {exc}", file=sys.stderr)
+        return 2
     finally:
         store.close()
     if args.json:
-        print(json.dumps([asdict(r) for r in rows], ensure_ascii=False, indent=2))
+        # Одна когорта: список строк, как до когорт; несколько: словарь по когортам.
+        data = ({c: [asdict(r) for r in rows] for c, rows in tables.items()} if len(tables) > 1
+                else [asdict(r) for r in next(iter(tables.values()))])
+        print(json.dumps(data, ensure_ascii=False, indent=2))
     else:
-        print(scorecard_text(rows, args.trust_model_version))
+        print("\n\n".join(scorecard_text(rows, args.trust_model_version, c) for c, rows in tables.items()))
     return 0
 
 
@@ -247,6 +264,9 @@ def main(argv=None) -> int:
                             help="Записать полный отчёт в Markdown (ТЗ v0.9.6, п. 5.3)")
     p_validate.add_argument("--trust-model-version", action="append", default=None,
                             help="Только предсказания наблюдений этой версии модели доверия (можно несколько)")
+    p_validate.add_argument("--cohort-type", action="append", default=None,
+                            help="тип когорты (natural, stress_runtime, stress_security, stress_task, external) "
+                                 "или all; по умолчанию natural, можно повторять")
     p_validate.add_argument("--calibration-fraction", type=float, default=0.6)
     p_validate.add_argument("--json", action="store_true")
     p_validate.set_defaults(func=cmd_validate)
@@ -256,6 +276,8 @@ def main(argv=None) -> int:
     )
     p_scorecard.add_argument("db_path")
     p_scorecard.add_argument("--trust-model-version", action="append", default=None)
+    p_scorecard.add_argument("--cohort-type", action="append", default=None,
+                             help="когорта или all (по scorecard на каждую); по умолчанию natural")
     p_scorecard.add_argument("--json", action="store_true")
     p_scorecard.set_defaults(func=cmd_scorecard)
 

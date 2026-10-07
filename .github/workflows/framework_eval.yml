@@ -74,9 +74,35 @@ jobs:
           restore-keys: |
             frameworks-evidence-db-
 
+      # [Unreleased] Какие модели ротации (conditions.MODELS) сейчас есть у
+      # Groq: снятая модель видна здесь, а не пачкой infrastructure_error.
+      # Без ответа /models (нет ключа, сбой) остаются все модели.
+      - name: Check available Groq models
+        continue-on-error: true
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          python - <<'PY' >> "$GITHUB_ENV"
+          import json, os, sys, urllib.request
+          from conditions import JUDGE_MODELS, MODELS
+          wanted = list(dict.fromkeys(MODELS + JUDGE_MODELS))
+          req = urllib.request.Request("https://api.groq.com/openai/v1/models",
+                                       headers={"Authorization": f"Bearer {os.environ.get('GROQ_API_KEY', '')}"})
+          try:
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  have = {m["id"] for m in json.load(r)["data"]}
+          except Exception as exc:
+              print(f"/models недоступен ({type(exc).__name__}): ротация по всем моделям", file=sys.stderr)
+              sys.exit(0)
+          missing = [m for m in wanted if m not in have]
+          print(f"нет у Groq: {missing or 'все есть'}", file=sys.stderr)
+          print("AGENOMICS_MODELS=" + ",".join(m for m in wanted if m in have))
+          PY
+
       # Код выхода 1, если упал фреймворк с CI_TIER = "required" (см.
       # run_all_frameworks.py). experimental-фреймворки видны в отчёте,
-      # но job не валят.
+      # но job не валят. [Unreleased] Два прохода: natural и стресс-сценарий
+      # по номеру запуска (conditions.py); падения в стрессе job не валят.
       - name: Run all frameworks
         run: python run_all_frameworks.py
         env:
@@ -99,7 +125,14 @@ jobs:
         run: |
           VERSION=$(python -c "import agenomics; print(agenomics.__version__)")
           agenomics validate frameworks_evidence.db --trust-model-version "$VERSION" --report validation_report.md
-          agenomics scorecard frameworks_evidence.db --trust-model-version "$VERSION"
+          # [Unreleased] Каждая стресс-когорта отдельно: смешивать когорты нельзя.
+          for COHORT in stress_runtime stress_security stress_task; do
+            echo "::group::$COHORT"
+            agenomics validate frameworks_evidence.db --trust-model-version "$VERSION" --cohort-type "$COHORT" \
+              --report "validation_report_$COHORT.md"
+            echo "::endgroup::"
+          done
+          agenomics scorecard frameworks_evidence.db --trust-model-version "$VERSION" --cohort-type all
 
       # run_attempt в ключе: при ручном Re-run run_id тот же, ключ первой
       # попытки уже занят, и сохранение второй падало с "Unable to reserve
@@ -120,5 +153,5 @@ jobs:
           name: frameworks-evidence-db-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             examples/framework_evaluation/frameworks_evidence.db
-            examples/framework_evaluation/validation_report.md
+            examples/framework_evaluation/validation_report*.md
           retention-days: 90

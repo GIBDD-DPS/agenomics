@@ -39,6 +39,10 @@ from genome_from_capture import SECRET_SCANNER_VERSION, _detect_leaked_secrets, 
 # инциденты. Для проверки связи score с инцидентами их нужно исключать,
 # см. CHANGELOG 0.7.12.
 PRE_RUN_SOURCE = "full_pipeline.py/pre-run"
+# [Unreleased] Стресс-прогоны помечаются суффиксом когорты в source
+# (full_pipeline.py/pre-run:stress_runtime и т. п.) и не входят в историю,
+# по которой считается Trust Score: их условия задаём мы.
+STRESS_SOURCE_PREFIX = PRE_RUN_SOURCE + ":"
 
 # Классы из classify_failures.classify_error(), которые означают сбой
 # окружения, а не поведения агента. "timeout" сюда сознательно не
@@ -93,6 +97,23 @@ TASK_CHECKER_DONOR = dict(
 # (в task_outcome) результат задачи. Теперь у каждого прогона отдельное
 # предсказание на каждую цель, и Validation Engine проверяет их порознь:
 # один и тот же score может предсказывать утечки и не предсказывать отказы.
+# [Unreleased] Вторые доноры (docs/specs/validation-data-acquisition-v1.md, раздел 7).
+# Судья: другая модель Groq решает задачу сама и оценивает ответ, без Trust
+# Score и без эталона. Канарейка: точное совпадение подложенного значения в
+# ответе агента, только в stress_security.
+JUDGE_DONOR = dict(
+    donor_id="framework_eval.llm_judge", donor_type="outcome",
+    name="framework_evaluation LLM judge (другая модель Groq)", independence_group="llm_judge",
+    provider="groq",
+)
+CANARY_DONOR = dict(
+    donor_id="framework_eval.canary", donor_type="security",
+    name="framework_evaluation canary exact match", independence_group="canary_exact_match",
+)
+# Внедрённый fault_proxy сбой, с которым агент не справился: поведение
+# агента, а не окружения (исход runtime_failure в stress_runtime).
+INJECTED_FAULT_CLASS = "unhandled_injected_fault"
+
 TARGET_RUNTIME = "runtime_failure"      # исход execution_error от runtime-монитора
 TARGET_SECURITY = "security_incident"   # исход secret_leak от сканера
 TARGET_TASK = "task_failure"            # исход task_failure от task_checker, только если есть check()
@@ -239,6 +260,8 @@ def _load_history_from_store(store: EvidenceStore, agent_id: str):
     for obs in store.get_observations(agent_id):
         if obs.execution_status is None:
             continue
+        if (obs.source or "").startswith(STRESS_SOURCE_PREFIX):
+            continue  # [Unreleased] стресс-прогоны не история агента для score
         n_runs += 1
         n_success += obs.execution_status == "success"
         leaks.append(any(inc.get("category") == "data_leak" for inc in obs.incidents))
@@ -265,6 +288,10 @@ def run_framework_and_record(
     prompt_version: Optional[str] = None,
     framework_package: Optional[str] = None,
     check_fn: Optional[Callable] = None,
+    ctx=None,
+    answer_fn: Optional[Callable] = None,
+    proxy=None,
+    judge_fn: Optional[Callable] = None,
 ) -> dict:
     """Один вызов делает всё: строит геном из истории прошлых прогонов и
     считает по нему TrustScorer.score() ДО запуска, затем запускает
@@ -283,10 +310,28 @@ def run_framework_and_record(
 
     check_fn(result) -> bool: проверка итогового ответа агента для задач
     с однозначным правильным ответом. Без неё предсказание task_failure
-    не создаётся, а task_outcome остаётся неизвестным при успешном прогоне."""
+    не создаётся, а task_outcome остаётся неизвестным при успешном прогоне.
+
+    [Unreleased] Условие прогона (docs/specs/validation-data-acquisition-v1.md):
+    ctx (conditions.RunContext) задаёт модель, задачу и когорту; шаблон
+    вызывается как run_fn(ctx), answer_fn(result) достаёт текст ответа, а
+    проверяет его задача (ctx.task.check), не шаблон. proxy (fault_proxy.
+    FaultProxy) внедряет сбой в stress_runtime; judge_fn(prompt, answer,
+    model) -> (модель судьи, верно ли, ошибка) даёт второй исход
+    task_failure. Без ctx всё работает как раньше: run_fn(), check_fn."""
     import io, contextlib, logging, time
     from datetime import timezone
     from agenomics import Incident, IncidentCategory, IncidentSeverity, IncidentSource
+
+    cohort_type = ctx.cohort_type if ctx is not None else None
+    task_version = prompt_version
+    if ctx is not None:
+        model_version = ctx.model_version
+        prompt_version = ctx.task.task_id if ctx.task else prompt_version
+        task_version = ctx.task_version
+    has_task_check = (ctx is not None and answer_fn is not None and ctx.task is not None
+                      and ctx.task.expected is not None) or (ctx is None and check_fn is not None)
+    is_stress = cohort_type is not None and cohort_type != "natural"
 
     # Score фиксируется до прогона, только из прошлых прогонов. Всё, что
     # случится в текущем прогоне (статус, длительность, утечка в логе),
@@ -322,7 +367,7 @@ def run_framework_and_record(
         evaluation_period=scored_at.isoformat(),
         request_count=1,
         collector="sdk",
-        source=PRE_RUN_SOURCE,
+        source=STRESS_SOURCE_PREFIX + cohort_type if is_stress else PRE_RUN_SOURCE,
         model_version=model_version,
         prompt_version=prompt_version,
         framework_version=framework_version,
@@ -331,13 +376,13 @@ def run_framework_and_record(
     store.register_donor(**RUNTIME_DONOR)
     store.register_donor(**SCANNER_DONOR)
     targets = [TARGET_RUNTIME, TARGET_SECURITY]
-    if check_fn is not None:
+    if has_task_check:
         store.register_donor(**TASK_CHECKER_DONOR)
         targets.append(TARGET_TASK)
     prediction_ids = {
         target: store.record_prediction(
             obs_id, target=target, horizon=PREDICTION_HORIZON, frozen_at=scored_at,
-            task_version=prompt_version, environment_id=_environment_id(),
+            task_version=task_version, environment_id=_environment_id(), cohort_type=cohort_type,
         )
         for target in targets
     }
@@ -357,9 +402,18 @@ def run_framework_and_record(
     error_class = None
     run_result = None
 
+    env_backup = {}
+    if proxy is not None and ctx is not None and ctx.fault:
+        # Все клиенты идут через прокси: явный base_url из ctx, а SDK Groq и
+        # litellm, у которых адрес задаётся только окружением, через переменные.
+        proxy.arm(ctx.fault)
+        ctx.base_url = proxy.base_url
+        for name, value in (("GROQ_API_BASE", proxy.base_url), ("GROQ_BASE_URL", proxy.root_url)):
+            env_backup[name] = os.environ.get(name)
+            os.environ[name] = value
     try:
         with contextlib.redirect_stdout(stream):
-            run_result = run_fn()
+            run_result = run_fn(ctx) if ctx is not None else run_fn()
     except Exception as exc:
         status = "error"
         # Раньше текст исключения нигде не сохранялся, инцидент содержал
@@ -372,6 +426,11 @@ def run_framework_and_record(
     finally:
         for name in loggers:
             logging.getLogger(name).removeHandler(handler)
+        for name, value in env_backup.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
     duration = round(time.perf_counter() - start_perf, 3)
     raw_log = stream.getvalue()
@@ -381,11 +440,19 @@ def run_framework_and_record(
     leaked_secret_types = _detect_leaked_secrets(raw_log)
 
     incidents = []
+    fault_injected = bool(proxy is not None and ctx is not None and ctx.fault and proxy.injected)
+    upstream_errors = list(proxy.upstream_errors) if fault_injected else []
     if status == "error":
         # Класс ошибки пишется при записи, а не только при чтении отчёта
         # (classify_failures.py): ImportError и отсутствующий ключ не
         # должны выглядеть в базе так же, как сбой поведения агента.
         error_class = classify_error(error_summary)
+        # [Unreleased] stress_runtime: агент не справился с внедрённым сбоем.
+        # По тексту это часто rate_limit или ошибка сервера, но настоящий
+        # апстрим ошибок не давал, значит, это поведение агента. Если Groq
+        # сам ответил ошибкой, класс остаётся по тексту (обычно окружение).
+        if fault_injected and not upstream_errors:
+            error_class = INJECTED_FAULT_CLASS
         category = (
             IncidentCategory.INFRASTRUCTURE if error_class in _INFRASTRUCTURE_ERROR_CLASSES
             else IncidentCategory.OTHER
@@ -411,7 +478,18 @@ def run_framework_and_record(
     # выглядел бы как плохое поведение агента.
     task_check = None
     task_check_error = None
-    if check_fn is not None and status == "success":
+    answer_text = None
+    if status == "success" and ctx is not None and answer_fn is not None:
+        try:
+            # Копия условия задачи в ответе (некоторые фреймворки при сбое
+            # модели возвращают запрос пользователя) не ответ агента: ни
+            # число из условия, ни канарейка из документа не засчитываются.
+            answer_text = str(answer_fn(run_result) or "").replace(ctx.prompt, "")
+        except Exception as exc:
+            task_check_error = f"{type(exc).__name__}: {exc}"[:150]
+        if answer_text is not None and has_task_check:
+            task_check = bool(ctx.task.check(answer_text))
+    elif check_fn is not None and status == "success" and ctx is None:
         try:
             task_check = bool(check_fn(run_result))
         except Exception as exc:
@@ -452,7 +530,7 @@ def run_framework_and_record(
         "leak:" + ",".join(leaked_secret_types) if leaked_secret_types else "clean", "Q2",
         source_reference=reference,
     )
-    if check_fn is not None:
+    if has_task_check:
         if status == "error":
             finding = "not_run"
         elif task_check_error:
@@ -478,7 +556,9 @@ def run_framework_and_record(
             continue
         if target == TARGET_RUNTIME:
             store.record_outcome(prediction_id, RUNTIME_DONOR["donor_id"], "execution_error", occurred=status == "error",
-                                 outcome_class="RUNTIME", quality_level="Q1", source_reference=reference)
+                                 outcome_class="RUNTIME", quality_level="Q1", source_reference=reference,
+                                 details=(f"fault={ctx.fault}; injected={fault_injected}; upstream_errors={upstream_errors}"
+                                          if ctx is not None and ctx.fault else None))
         elif target == TARGET_SECURITY:
             store.record_outcome(prediction_id, SCANNER_DONOR["donor_id"], "secret_leak", occurred=bool(leaked_secret_types),
                                  outcome_class="SECURITY", quality_level="Q2", source_reference=reference)
@@ -487,10 +567,47 @@ def run_framework_and_record(
                                  occurred=task_outcome == "failure", outcome_class="TASK", quality_level="Q3",
                                  source_reference=reference)
 
-    runs_total = len(past_leaks) + 1
-    runtime_reliability = round(
-        ((past_reliability or 0.0) * len(past_leaks) + (status == "success")) / runs_total, 3,
-    )
+    # [Unreleased] Второй донор задачи: LLM-судья, только на успешном
+    # прогоне с ответом и не в stress_security (в условии там инъекция,
+    # которая могла бы повлиять и на судью). Нет ответа судьи: нет исхода.
+    judge_model = judge_correct = judge_error = None
+    if (not is_infrastructure and judge_fn is not None and has_task_check and answer_text is not None
+            and cohort_type != "stress_security" and TARGET_TASK in prediction_ids):
+        judge_model, judge_correct, judge_error = judge_fn(ctx.task.prompt, answer_text, ctx.model)
+        # Модель судьи меняется по ротации: каждая модель отдельный донор
+        # (донора нельзя молча переопределить), группа независимости общая.
+        judge_donor_id = f"{JUDGE_DONOR['donor_id']}.{judge_model}"
+        if judge_model is not None:
+            store.register_donor(**dict(JUDGE_DONOR, donor_id=judge_donor_id, model=judge_model))
+            store.record_evidence(
+                obs_id, judge_donor_id, "llm_judgement",
+                {True: "correct", False: "incorrect", None: f"no_verdict:{judge_error}"}[judge_correct], "Q3",
+                source_reference=reference, metadata={"judge_model": judge_model},
+            )
+        if judge_correct is not None:
+            store.record_outcome(prediction_ids[TARGET_TASK], judge_donor_id, "task_failure",
+                                 occurred=not judge_correct, outcome_class="TASK", quality_level="Q3",
+                                 source_reference=reference, details=f"judge_model={judge_model}")
+
+    # [Unreleased] stress_security: раскрыл ли агент канарейку в ответе.
+    canary_disclosed = None
+    if not is_infrastructure and ctx is not None and ctx.canary and answer_text is not None:
+        from conditions import canary_disclosed as _canary_disclosed
+        canary_disclosed = _canary_disclosed(answer_text, ctx.canary)
+        store.register_donor(**CANARY_DONOR)
+        store.record_evidence(obs_id, CANARY_DONOR["donor_id"], "canary_check",
+                              "disclosed" if canary_disclosed else "kept", "Q2", source_reference=reference)
+        store.record_outcome(prediction_ids[TARGET_SECURITY], CANARY_DONOR["donor_id"], "prompt_injection_disclosure",
+                             occurred=canary_disclosed, outcome_class="SECURITY", quality_level="Q2",
+                             source_reference=reference, details=f"scenario={ctx.task.scenario}")
+
+    if is_stress:
+        runtime_reliability = past_reliability  # стресс-прогон не меняет надёжность агента
+    else:
+        runs_total = len(past_leaks) + 1
+        runtime_reliability = round(
+            ((past_reliability or 0.0) * len(past_leaks) + (status == "success")) / runs_total, 3,
+        )
 
     if print_report:
         print(trust_report(result, agent_id=framework))
@@ -499,7 +616,8 @@ def run_framework_and_record(
             for note in derivation.derivation_notes:
                 print(f"  - {note}")
         print(f"\nScore посчитан до прогона по истории из {len(past_statuses)} прошлых прогонов "
-              f"(без упавших из-за окружения); надёжность запуска: {runtime_reliability:.0%}")
+              f"(без упавших из-за окружения и стресс-прогонов); надёжность запуска: "
+              f"{'—' if runtime_reliability is None else f'{runtime_reliability:.0%}'}")
 
     return {
         "framework": framework, "status": status, "score": result.score,
@@ -515,4 +633,11 @@ def run_framework_and_record(
         "task_check": task_check,
         "observation_id": obs_id,
         "prediction_ids": prediction_ids,
+        "cohort_type": cohort_type or "natural",
+        "task_version": task_version,
+        "fault_injected": fault_injected,
+        "canary_disclosed": canary_disclosed,
+        "judge_model": judge_model,
+        "judge_correct": judge_correct,
+        "judge_error": judge_error,
     }

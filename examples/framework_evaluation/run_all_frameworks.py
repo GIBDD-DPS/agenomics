@@ -23,8 +23,17 @@ run_all_frameworks.py — автоматический раннер: авто-о
 Запуск вручную:
     python run_all_frameworks.py
 
+[Unreleased] Каждый запуск делает два прохода по всем агентам: natural и
+один стресс-сценарий (conditions.py, docs/specs/validation-data-acquisition-v1.md).
+Условие одно на запуск для всех агентов и выбирается по номеру запуска
+(GITHUB_RUN_NUMBER или AGENOMICS_RUN_NUMBER). Шаблон с run(ctx) и
+answer(result) получает модель и задачу от раннера; шаблон со старым
+run() без аргументов идёт только в natural со своей задачей и check().
+AGENOMICS_STRESS=0 отключает стресс-проход, AGENOMICS_JUDGE=0 судью.
+
 Код выхода (v0.8.0): 1, если упал хотя бы один фреймворк с
-CI_TIER = "required", иначе 0. Падения experimental-фреймворков видны
+CI_TIER = "required" в natural, иначе 0. Падения в стресс-когортах это
+исходы эксперимента, а не поломка, и CI не валят. Падения experimental-фреймворков видны
 в отчёте, но CI не валят. Шаблон без CI_TIER считается experimental:
 новый фреймворк сначала должен доказать стабильность.
 
@@ -34,12 +43,17 @@ CI_TIER = "required", иначе 0. Падения experimental-фреймвор
 """
 
 import importlib.util
+import inspect
+import os
 import re
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 from agenomics import EvidenceStore
 
+from conditions import natural_condition, run_number_from_env, stress_condition, with_fresh_canary
+from fault_proxy import FaultProxy
 from full_pipeline import run_framework_and_record
 
 FRAMEWORKS_DIR = Path(__file__).parent / "frameworks"
@@ -61,6 +75,8 @@ def summarize(results: list) -> tuple:
     """Итоговый отчёт и код выхода. Вынесено из main(), чтобы логику
     required/experimental можно было проверить без запуска фреймворков."""
     lines = []
+    stress = [r for r in results if r.get("cohort_type", "natural") != "natural"]
+    results = [r for r in results if r.get("cohort_type", "natural") == "natural"]
     for tier in CI_TIERS:
         tier_results = [r for r in results if r["ci_tier"] == tier]
         if not tier_results:
@@ -83,8 +99,34 @@ def summarize(results: list) -> tuple:
     unobserved = [r["framework"] for r in results if r["status"] == "success" and r.get("model_match") is None]
     if unobserved:
         lines.append(f"Модель в ответе не найдена (сверка не проведена): {', '.join(unobserved)}")
+    if stress:
+        cohort = stress[0]["cohort_type"]
+        events = []
+        for r in stress:
+            if r["status"] == "error":
+                events.append(f"{r['framework']} упал [{r.get('error_class') or 'other'}]")
+            if r.get("canary_disclosed"):
+                events.append(f"{r['framework']} раскрыл канарейку")
+            if r.get("task_check") is False:
+                events.append(f"{r['framework']} неверный ответ")
+        lines.append(f"Стресс ({cohort}, {stress[0].get('task_version')}): событий {len(events)} из {len(stress)} прогонов"
+                     + (": " + "; ".join(events) if events else ""))
+    judged = [r for r in results + stress if r.get("judge_model")]
+    if judged:
+        disagree = [r["framework"] for r in judged
+                    if r.get("judge_correct") is not None and r.get("task_check") is not None
+                    and r["judge_correct"] != r["task_check"]]
+        lines.append(f"Судья: оценил {sum(r.get('judge_correct') is not None for r in judged)} из {len(judged)}"
+                     + (f", расходится с проверкой: {', '.join(disagree)}" if disagree else ""))
     required_failed = [r for r in results if r["ci_tier"] == "required" and r["status"] == "error"]
     return "\n".join(lines), (1 if required_failed else 0)
+
+
+def _accepts_argument(fn) -> bool:
+    try:
+        return len(inspect.signature(fn).parameters) >= 1
+    except (TypeError, ValueError):
+        return False
 
 
 def discover_frameworks(include_disabled: bool = False) -> dict:
@@ -135,6 +177,9 @@ def discover_frameworks(include_disabled: bool = False) -> dict:
             "framework_package": getattr(module, "FRAMEWORK_PACKAGE", None),
             "ci_tier": getattr(module, "CI_TIER", "experimental"),
             "check": getattr(module, "check", None),
+            "answer": getattr(module, "answer", None),
+            # [Unreleased] run(ctx): шаблон принимает условие от раннера
+            "takes_context": _accepts_argument(module.run) and hasattr(module, "answer"),
         }
         if discovered[name]["ci_tier"] not in CI_TIERS:
             print(f"[WARN] {py_file.name}: CI_TIER={discovered[name]['ci_tier']!r} "
@@ -159,33 +204,66 @@ def main():
     print()
 
     store = EvidenceStore(str(DB_PATH))
+    run_number = run_number_from_env(default=len(store.get_observations()) // max(len(frameworks), 1))
+    passes = [natural_condition(run_number)]
+    if os.environ.get("AGENOMICS_STRESS", "1") != "0":
+        passes.append(stress_condition(run_number))
+    judge_fn = None
+    if os.environ.get("AGENOMICS_JUDGE", "1") != "0" and os.environ.get("GROQ_API_KEY"):
+        from judge import judge_answer
+        judge_fn = judge_answer
+    print(f"Запуск {run_number}: " + "; ".join(f"{c.cohort_type} {c.model} {c.task_version}" for c in passes))
+    print()
+
     results = []
-    for name, config in frameworks.items():
-        summary = run_framework_and_record(
-            name, config["run"], store,
-            domain=config["domain"], autonomy=config["autonomy"],
-            model_version=config["model_version"], prompt_version=config["prompt_version"],
-            framework_package=config["framework_package"],
-            check_fn=config["check"],
-            print_report=False,
-        )
-        summary["ci_tier"] = config["ci_tier"]
-        summary["model_version"] = config["model_version"]
-        results.append(summary)
-        marker = "✅" if summary["status"] == "success" else "❌"
-        leak_marker = " ⚠️ УТЕЧКА" if summary["leaked_secrets"] else ""
-        task_marker = {True: " задача✅", False: " задача❌", None: ""}[summary["task_check"]]
-        # Trust Score и надёжность запуска разные величины (v0.9.0): score не
-        # учитывает падения из-за окружения, надёжность учитывает всё.
-        print(f"{marker} {name:22s} score={summary['score']:.1f} ({summary['label']}) "
-              f"reliability={summary['runtime_reliability']:.0%}{task_marker}{leak_marker}")
+    for condition in passes:
+        proxy = FaultProxy() if condition.fault else None
+        if proxy is not None:
+            proxy.__enter__()
+        try:
+            for name, config in frameworks.items():
+                if config["takes_context"]:
+                    ctx = with_fresh_canary(replace(condition))
+                elif condition.cohort_type == "natural":
+                    ctx = None  # старый шаблон: своя задача и check()
+                else:
+                    continue    # в стресс-когорты идут только шаблоны с run(ctx)
+                summary = run_framework_and_record(
+                    name, config["run"], store,
+                    domain=config["domain"], autonomy=config["autonomy"],
+                    model_version=config["model_version"], prompt_version=config["prompt_version"],
+                    framework_package=config["framework_package"],
+                    check_fn=config["check"],
+                    print_report=False,
+                    ctx=ctx, answer_fn=config["answer"], proxy=proxy, judge_fn=judge_fn,
+                )
+                summary["ci_tier"] = config["ci_tier"]
+                summary["model_version"] = ctx.model_version if ctx is not None else config["model_version"]
+                results.append(summary)
+                marker = "✅" if summary["status"] == "success" else "❌"
+                leak_marker = " ⚠️ УТЕЧКА" if summary["leaked_secrets"] else ""
+                canary_marker = " ⚠️ КАНАРЕЙКА" if summary.get("canary_disclosed") else ""
+                task_marker = {True: " задача✅", False: " задача❌", None: ""}[summary["task_check"]]
+                judge_marker = {True: " судья✅", False: " судья❌", None: ""}[summary.get("judge_correct")]
+                reliability = summary["runtime_reliability"]
+                # Trust Score и надёжность запуска разные величины (v0.9.0): score не
+                # учитывает падения из-за окружения, надёжность учитывает всё.
+                print(f"{marker} [{summary['cohort_type']}] {name:22s} score={summary['score']:.1f} ({summary['label']}) "
+                      f"reliability={'—' if reliability is None else f'{reliability:.0%}'}"
+                      f"{task_marker}{judge_marker}{leak_marker}{canary_marker}"
+                      + (f" [{summary['error_class']}]" if summary["status"] == "error" else ""))
+        finally:
+            if proxy is not None:
+                proxy.__exit__(None, None, None)
+        print()
 
     store.close()
 
-    print()
-    failed = [r for r in results if r["status"] == "error"]
-    leaked = [r for r in results if r["leaked_secrets"]]
-    print(f"Итого: {len(results)} фреймворков, {len(failed)} упало, {len(leaked)} с находками утечек")
+    natural = [r for r in results if r["cohort_type"] == "natural"]
+    failed = [r for r in natural if r["status"] == "error"]
+    leaked = [r for r in natural if r["leaked_secrets"]]
+    print(f"Итого natural: {len(natural)} фреймворков, {len(failed)} упало, {len(leaked)} с находками утечек; "
+          f"всего прогонов {len(results)}")
     print(f"Данные сохранены в {DB_PATH} — переживут следующий запуск (накопление истории)")
 
     report, exit_code = summarize(results)

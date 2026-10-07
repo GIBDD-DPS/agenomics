@@ -1,41 +1,31 @@
 # Agenomics 0.9.6 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
-Шаблон под LangChain, переведён на Groq (бесплатный провайдер, без карты).
-Требует переменную окружения GROQ_API_KEY.
+Шаблон под LangChain (create_agent) на Groq.
+Модель, задачу и системный промпт задаёт раннер (conditions.RunContext):
+шаблон только строит агента своего фреймворка и вызывает его. Требует
+GROQ_API_KEY.
 """
 
 DOMAIN = "content"
 AUTONOMY = "advisory"
-MODEL_VERSION = "groq/openai/gpt-oss-20b"  # провайдер/модель, записывается в EvidenceStore.model_version
 FRAMEWORK_PACKAGE = "langchain"  # имя дистрибутива для importlib.metadata.version()
-PROMPT_VERSION = "task-v1"  # задача с ответом из инструмента, без изменений с v0.9.2
 CI_TIER = "required"  # required: падение валит CI; experimental: только в отчёте
 
-
-def run():
+def run(ctx):
     from langchain.agents import create_agent
 
-    def get_weather(city: str) -> str:
-        """Get weather for a given city."""
-        return f"It's always sunny in {city}!"
-
-    agent = create_agent(
-        model="groq:openai/gpt-oss-20b",
-        tools=[get_weather],
-        system_prompt="You are a helpful assistant",
-    )
-
-    result = agent.invoke(
-        {"messages": [{"role": "user", "content": "Какая погода в Сан-Франциско?"}]}
-    )
+    # ChatGroq берёт адрес из GROQ_BASE_URL (корень, без /openai/v1)
+    agent = create_agent(model=ctx.prefixed_model, tools=[], system_prompt=ctx.system)
+    result = agent.invoke({"messages": [{"role": "user", "content": ctx.prompt}]})
     print(result["messages"][-1].content)
     return result
 
 
-def check(result) -> bool:
-    """Инструмент get_weather возвращает "It's always sunny": правильный
-    ответ должен сказать, что солнечно. Проверяется только последнее
-    сообщение (ответ модели): в предыдущих лежит вывод самого инструмента,
-    и проверка по всему результату прошла бы при любом ответе."""
-    text = str(getattr(result["messages"][-1], "content", "")).lower()
-    return "sunny" in text or "солн" in text
+def answer(result) -> str:
+    """Только последнее сообщение (ответ модели): в предыдущих лежат
+    запрос и вывод инструментов, и проверка по ним прошла бы при любом ответе."""
+    messages = result.get("messages") if isinstance(result, dict) else None
+    text = getattr(messages[-1], "content", None) if messages else None
+    if text is None:
+        raise ValueError(f"неожиданная форма результата: {type(result).__name__}")  # исход неизвестен, а не провал агента
+    return str(text)

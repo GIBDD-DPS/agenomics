@@ -1,45 +1,43 @@
 # Agenomics 0.9.6 | Author: Dm.Andreyanov | Brand: Prizolov Lab | © 2026
 """
-Шаблон под Mirascope (v2, `mirascope.llm`), модель Groq.
-Требует переменную окружения GROQ_API_KEY (тот же ключ, что у остальных шаблонов).
-
-Groq подключается через провайдер together с base_url Groq: он передаёт
-идентификатор модели как есть. Провайдер openai отрезал бы всё после
-первого "/", и в Groq ушло бы "openai" вместо "openai/gpt-oss-20b".
+Шаблон под Mirascope v2 (llm.call), OpenAI-совместимый провайдер на Groq.
+Модель, задачу и системный промпт задаёт раннер (conditions.RunContext):
+шаблон только строит агента своего фреймворка и вызывает его. Требует
+GROQ_API_KEY.
 """
 
 DOMAIN = "content"
 AUTONOMY = "advisory"
-MODEL_VERSION = "groq/openai/gpt-oss-20b"  # провайдер/модель, записывается в EvidenceStore.model_version
 FRAMEWORK_PACKAGE = "mirascope"  # имя дистрибутива для importlib.metadata.version()
-PROMPT_VERSION = "task-v2"  # задача с проверяемым ответом
-CI_TIER = "experimental"  # новый шаблон: experimental, пока не доказал стабильность в CI
+CI_TIER = "experimental"  # required: падение валит CI; experimental: только в отчёте
 
-
-def run():
-    import os
+def run(ctx):
     from mirascope import llm
 
-    llm.register_provider(
-        "together", scope="openai/gpt-oss-",
-        api_key=os.environ.get("GROQ_API_KEY"),
-        base_url=os.environ.get("GROQ_API_BASE", "https://api.groq.com/openai/v1"),
-    )
+    # Mirascope требует id вида "провайдер/модель" и не всегда передаёт его
+    # в API как есть. Модель с "/" (openai/gpt-oss-20b, qwen/qwen3-32b) идёт
+    # через провайдер together: он отправляет id целиком. Модель без "/"
+    # (llama-3.3-70b-versatile) через openai: он отрезает "openai/", а
+    # ":completions" выбирает Chat Completions вместо Responses API.
+    if "/" in ctx.model:
+        llm.register_provider("together", scope=ctx.model, api_key=ctx.api_key, base_url=ctx.base_url)
+        model_id = ctx.model
+    else:
+        llm.register_provider("openai", scope=f"openai/{ctx.model}", api_key=ctx.api_key, base_url=ctx.base_url)
+        model_id = f"openai/{ctx.model}:completions"
 
-    @llm.call("openai/gpt-oss-20b")
+    @llm.call(model_id)
     def solve():
-        return "Сколько минут в 2 часах и 15 минутах? Ответь одним числом."
+        return [llm.messages.system(ctx.system), llm.messages.user(ctx.prompt)]
 
     response = solve()
     print(response.text())
     return response
 
 
-def check(result) -> bool:
-    """Задача с однозначным ответом: 2 * 60 + 15 = 135. Проверяется текст ответа (Response.text())."""
-    import re
+def answer(result) -> str:
+    """Текст ответа (response.text())."""
     text = result.text() if callable(getattr(result, "text", None)) else None
-    if text is None:  # форма результата не та, что ожидалась: исход неизвестен, а не провал агента
-        raise ValueError(f"неожиданная форма результата: {type(result).__name__}")
-    text = re.sub(r"(?<=\d)[\s  ,.](?=\d{3}(?!\d))", "", str(text or ""))  # 1 800, 1,800 -> 1800
-    return re.search(r"(?<!\d)135(?!\d)", text) is not None
+    if text is None:
+        raise ValueError(f"неожиданная форма результата: {type(result).__name__}")  # исход неизвестен, а не провал агента
+    return str(text)

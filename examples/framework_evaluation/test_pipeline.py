@@ -176,21 +176,56 @@ def _module_constant(source: str, name: str):
     return None
 
 
-def test_every_framework_template_declares_model_version():
+def _is_context_template(source: str) -> bool:
+    """[Unreleased] Шаблон нового вида: run(ctx) и answer(result)."""
+    return "\ndef run(ctx)" in source and "\ndef answer(result)" in source
+
+
+def _legacy_templates():
+    return [p for p in _framework_templates() if not _is_context_template(p.read_text(encoding="utf-8"))]
+
+
+def test_enabled_templates_take_context_and_hardcode_no_model():
+    """[Unreleased] Модель и задачу задаёт раннер (conditions.py). Шаблон,
+    который сам зашивает модель или задачу, ломает ротацию: в базу писалась
+    бы модель из ctx, а вызывалась другая."""
+    from conditions import JUDGE_MODELS, MODELS
+    from run_all_frameworks import discover_frameworks
     templates = _framework_templates()
     assert len(templates) >= 19
-    missing = [p.name for p in templates if not _module_constant(p.read_text(encoding="utf-8"), "MODEL_VERSION")]
+    enabled = discover_frameworks()
+    for p in templates:
+        if p.stem not in enabled:
+            continue
+        source = p.read_text(encoding="utf-8")
+        assert _is_context_template(source), p.name
+        assert enabled[p.stem]["takes_context"], p.name
+        # строки кода, а не комментарии: в комментариях модели бывают примерами
+        import ast
+        strings = [n.value for n in ast.walk(ast.parse(source)) if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+        hardcoded = sorted({m for m in MODELS + JUDGE_MODELS for text in strings[1:] if m in text})
+        assert not hardcoded, f"{p.name}: модель зашита в шаблон: {hardcoded}"
+        assert "Ответь одним числом" not in source, f"{p.name}: задача зашита в шаблон"
+        assert "ctx.prompt" in source and ("ctx.model" in source or "_model" in source), p.name
+
+
+def test_legacy_templates_declare_model_version():
+    """Шаблоны старого вида (run() без условия, сейчас только выключенные)
+    по-прежнему обязаны объявлять MODEL_VERSION и PROMPT_VERSION."""
+    legacy = _legacy_templates()
+    assert {p.stem for p in legacy} == {"atomic_agents_bot", "crewai_bot", "smolagents_bot", "txtai_bot"}
+    missing = [p.name for p in legacy if not _module_constant(p.read_text(encoding="utf-8"), "MODEL_VERSION")]
     assert not missing, f"MODEL_VERSION не объявлен в: {missing}"
+    missing = [p.name for p in legacy if not _module_constant(p.read_text(encoding="utf-8"), "PROMPT_VERSION")]
+    assert not missing, f"PROMPT_VERSION не объявлен в: {missing}"
 
 
 def test_model_version_matches_model_actually_called():
-    """MODEL_VERSION = "<провайдер>/<модель>". Идентификатор модели
-    (всё после провайдера) обязан встречаться в коде шаблона ещё раз,
-    помимо самой константы. Ловит ситуацию, когда модель в run()
-    поменяли, а MODEL_VERSION забыли, и в EvidenceStore пишется
-    неправда."""
+    """MODEL_VERSION = "<провайдер>/<модель>" у шаблонов старого вида.
+    Идентификатор модели (всё после провайдера) обязан встречаться в коде
+    шаблона ещё раз, помимо самой константы."""
     mismatched = []
-    for p in _framework_templates():
+    for p in _legacy_templates():
         source = p.read_text(encoding="utf-8")
         model_version = _module_constant(source, "MODEL_VERSION")
         _, _, model_id = model_version.partition("/")
@@ -202,18 +237,10 @@ def test_model_version_matches_model_actually_called():
 
 def test_runner_passes_model_version_from_template():
     from run_all_frameworks import discover_frameworks
-    discovered = discover_frameworks()
-    assert discovered["langchain_bot"]["model_version"] == "groq/openai/gpt-oss-20b"
-    assert discovered["google_adk_bot"]["model_version"] == "groq/openai/gpt-oss-20b"  # с v0.9.5
-    assert discovered["langchain_bot"]["prompt_version"] == "task-v1"
-
-
-def test_every_framework_template_declares_prompt_version():
-    """[v0.9.5] Версия задачи у каждого шаблона: без неё смена задачи не
-    видна в genome_hash, и прогоны разных задач смешиваются в истории."""
-    missing = [p.name for p in _framework_templates()
-               if not _module_constant(p.read_text(encoding="utf-8"), "PROMPT_VERSION")]
-    assert not missing, f"PROMPT_VERSION не объявлен в: {missing}"
+    discovered = discover_frameworks(include_disabled=True)
+    assert discovered["crewai_bot"]["model_version"] == "groq/openai/gpt-oss-20b"
+    assert discovered["crewai_bot"]["takes_context"] is False
+    assert discovered["langchain_bot"]["takes_context"] is True
 
 
 def test_disabled_templates_are_not_run_but_reported():
@@ -231,85 +258,73 @@ def test_disabled_templates_are_not_run_but_reported():
 
 
 
-# --- Задачи с проверяемым ответом (v0.9.4) ------------------------------
+# --- Задачи с проверяемым ответом (v0.9.4; с [Unreleased] задачи в conditions.py) ---
 
 def _check_answer(source: str) -> str:
     import re
     return re.search(r"\(\?<!\\d\)(\d+)\(\?!\\d\)", source).group(1)
 
 
-def test_every_framework_template_has_check():
-    """С 0.9.4 у каждого шаблона задача с однозначным ответом и check():
-    без него task_failure у агента не измеряется вовсе."""
-    missing = [p.name for p in _framework_templates() if "\ndef check(result)" not in p.read_text(encoding="utf-8")]
+def test_legacy_templates_have_check():
+    """Шаблон старого вида проверяет ответ сам (check); шаблон нового вида
+    только достаёт текст ответа (answer), проверяет задача."""
+    missing = [p.name for p in _legacy_templates() if "\ndef check(result)" not in p.read_text(encoding="utf-8")]
     assert not missing, f"нет check(): {missing}"
 
 
-def test_task_answer_is_not_in_task_text():
-    """Ответ не должен стоять в условии: иначе check() пройдёт, если агент
-    просто повторит вопрос (swarms, например, может вернуть всю историю
-    диалога вместе с текстом задачи)."""
-    import ast
-    import re
-    leaked = []
-    for p in _framework_templates():
-        source = p.read_text(encoding="utf-8")
-        if "Ответь одним числом" not in source:
-            continue
-        answer = _check_answer(source)
-        tasks = [n.value for n in ast.walk(ast.parse(source))
-                 if isinstance(n, ast.Constant) and isinstance(n.value, str) and "Ответь одним числом" in n.value]
-        assert tasks, p.name
-        if any(re.search(rf"(?<!\d){answer}(?!\d)", t) for t in tasks):
-            leaked.append(p.name)
-    assert not leaked, f"ответ есть в условии задачи: {leaked}"
-
-
-def test_checks_read_final_answer_of_each_framework():
-    """check() каждого шаблона на результате той формы, которую возвращает
-    его фреймворк: правильный ответ (в том числе с разрядами "1 800"),
-    неправильный и пустой."""
+def test_answers_read_final_answer_of_each_framework():
+    """answer() каждого шаблона на результате той формы, которую возвращает
+    его фреймворк: итоговый текст, без запроса и вывода инструментов;
+    чужая форма результата это ошибка (исход неизвестен), а не пустой ответ."""
     from types import SimpleNamespace as NS
     from run_all_frameworks import discover_frameworks
 
     shapes = {
         "agno_bot": lambda t: NS(content=t),
-        "atomic_agents_bot": lambda t: NS(chat_message=t),
         "autogen_bot": lambda t: NS(summary=None, messages=[{"role": "user", "content": "q"}, {"content": t}]),
         "beeai_bot": lambda t: NS(result=NS(text=t)),
         "camel_bot": lambda t: NS(msgs=[NS(content=t)]),
-        "crewai_bot": lambda t: NS(raw=t),
         "google_adk_bot": lambda t: [NS(content=NS(parts=[NS(text="думаю")])), NS(content=None),
                                      NS(content=NS(parts=[NS(text=t)]))],
         "griptape_bot": lambda t: NS(value=t),
         "haystack_bot": lambda t: {"last_message": NS(text=t), "messages": []},
+        "langchain_bot": lambda t: {"messages": [NS(content="q"), NS(content="It's always sunny"), NS(content=t)]},
         "langgraph_bot": lambda t: {"messages": [NS(content="q"), NS(content=t)]},
+        "llamaindex_bot": lambda t: NS(response=NS(content=t)),
+        "dspy_bot": lambda t: NS(answer=t, reasoning="считаю 999"),
         "openai_agents_bot": lambda t: NS(final_output=t),
         "pydantic_ai_bot": lambda t: NS(output=t),
         "semantic_kernel_bot": lambda t: NS(content=t),
         "swarms_bot": lambda t: t,
-        "txtai_bot": lambda t: t,
-        # v0.9.5
         "strands_agents_bot": lambda t: NS(message={"role": "assistant", "content": [{"text": t}]}),
         "deepagents_bot": lambda t: {"messages": [NS(content="q"), NS(content=t)]},
         "agent_framework_bot": lambda t: NS(text=t),
         "mirascope_bot": lambda t: NS(text=lambda: t),
     }
-    discovered = discover_frameworks(include_disabled=True)
+    discovered = discover_frameworks()
+    assert set(shapes) == set(discovered), set(discovered) ^ set(shapes)
     for name, shape in shapes.items():
+        answer = discovered[name]["answer"]
+        assert answer(shape("Ответ: **1 800**.")) == "Ответ: **1 800**.", name
+        try:
+            answer(object())
+        except (ValueError, AttributeError, TypeError, KeyError, IndexError):
+            pass
+        else:
+            assert name in ("swarms_bot", "semantic_kernel_bot", "griptape_bot"), name
+
+
+def test_legacy_checks_read_final_answer():
+    """check() выключенных шаблонов старого вида по-прежнему работает."""
+    from types import SimpleNamespace as NS
+    from run_all_frameworks import discover_frameworks
+    discovered = discover_frameworks(include_disabled=True)
+    for name, shape in {"atomic_agents_bot": lambda t: NS(chat_message=t), "crewai_bot": lambda t: NS(raw=t),
+                        "txtai_bot": lambda t: t}.items():
         check = discovered[name]["check"]
         answer = _check_answer((Path(__file__).resolve().parent / "frameworks" / f"{name}.py").read_text(encoding="utf-8"))
-        spaced = f"{answer[:-3]} {answer[-3:]}" if len(answer) > 3 else answer
-        assert check(shape(f"Ответ: **{spaced}**.")), name
+        assert check(shape(f"Ответ: {answer}.")), name
         assert not check(shape(f"Ответ: {int(answer) + 1}")), name
-        assert not check(shape(f"{answer}0")), name
-        assert not check(shape("")), name  # пустой ответ агента это провал задачи
-        try:
-            check(object())
-        except (ValueError, AttributeError, TypeError, KeyError, IndexError):
-            pass  # чужая форма результата: исход неизвестен (check_error), а не провал
-        else:
-            assert name in ("swarms_bot", "txtai_bot", "semantic_kernel_bot", "griptape_bot"), name
 
 
 # --- Score до прогона, без target leakage (v0.7.12) ---------------------
@@ -782,25 +797,30 @@ def test_broken_check_is_unknown_not_failure():
     store.close()
 
 
-def test_runner_discovers_check_for_every_template():
+def test_runner_discovers_answer_for_every_template():
     from run_all_frameworks import discover_frameworks
-    without_check = sorted(n for n, cfg in discover_frameworks().items() if cfg["check"] is None)
-    assert without_check == []
+    without_answer = sorted(n for n, cfg in discover_frameworks().items() if cfg["answer"] is None)
+    assert without_answer == []
 
 
-def test_template_checks_read_final_answer_not_tool_output():
-    """LangChain: вывод инструмента "It's always sunny" лежит в истории
-    сообщений; проверка по всему результату прошла бы при любом ответе."""
+def test_template_answers_read_final_answer_not_tool_output():
+    """LangChain: вывод инструмента лежит в истории сообщений; ответ это
+    только последнее сообщение. smolagents (старый вид) проверяет сам."""
     from types import SimpleNamespace as M
     from run_all_frameworks import discover_frameworks
-    checks = {n: cfg["check"] for n, cfg in discover_frameworks(include_disabled=True).items() if cfg["check"]}
+    found = discover_frameworks(include_disabled=True)
     tool_then_wrong = {"messages": [M(content="q"), M(content="It's always sunny in SF!"), M(content="Не знаю.")]}
-    tool_then_right = {"messages": [M(content="q"), M(content="It's always sunny in SF!"), M(content="Солнечно.")]}
-    assert checks["langchain_bot"](tool_then_wrong) is False
-    assert checks["langchain_bot"](tool_then_right) is True
-    assert checks["smolagents_bot"](55) and not checks["smolagents_bot"]("155")
-    assert checks["dspy_bot"](M(answer="22°C")) and not checks["dspy_bot"](M(answer="122"))
-    assert checks["llamaindex_bot"](M(response=M(content="до 15°C"))) and not checks["llamaindex_bot"](M(response=None))
+    assert found["langchain_bot"]["answer"](tool_then_wrong) == "Не знаю."
+    assert found["smolagents_bot"]["check"](55) and not found["smolagents_bot"]["check"]("155")
+    assert found["dspy_bot"]["answer"](M(answer="22", reasoning="1 2 3")) == "22"
+    try:
+        found["llamaindex_bot"]["answer"](M(response=None))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("llamaindex: нет response это неизвестный исход, а не пустой ответ")
+    # сообщение без текста (проглоченный битый ответ модели): пустой ответ, провал задачи
+    assert found["llamaindex_bot"]["answer"](M(response=M(content=None))) == ""
 
 
 def test_interrupted_run_leaves_prediction_without_outcome():
