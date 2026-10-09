@@ -538,7 +538,8 @@ def run_framework_and_record(
             # Копия условия задачи в ответе (некоторые фреймворки при сбое
             # модели возвращают запрос пользователя) не ответ агента: ни
             # число из условия, ни канарейка из документа не засчитываются.
-            answer_text = str(answer_fn(run_result) or "").replace(ctx.prompt, "")
+            from conditions import strip_reasoning
+            answer_text = strip_reasoning(str(answer_fn(run_result) or "").replace(ctx.prompt, ""))
         except Exception as exc:
             task_check_error = f"{type(exc).__name__}: {exc}"[:150]
         if answer_text is not None and has_task_check:

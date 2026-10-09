@@ -30,6 +30,9 @@ run_all_frameworks.py — автоматический раннер: авто-о
 answer(result) получает модель и задачу от раннера; шаблон со старым
 run() без аргументов идёт только в natural со своей задачей и check().
 AGENOMICS_STRESS=0 отключает стресс-проход, AGENOMICS_JUDGE=0 судью.
+AGENOMICS_PACING_SECONDS (по умолчанию 3) пауза между агентами: у
+бесплатного Groq лимит 8000 токенов в минуту на модель, и 19 агентов
+подряд с судьёй его превышали (прогон 127, rate_limit у двух агентов).
 
 Код выхода (v0.8.0): 1, если упал хотя бы один фреймворк с
 CI_TIER = "required" в natural, иначе 0. Падения в стресс-когортах это
@@ -47,6 +50,7 @@ import inspect
 import os
 import re
 import sys
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -226,7 +230,10 @@ def main():
         if proxy is not None:
             proxy.__enter__()
         try:
-            for name, config in frameworks.items():
+            pacing = float(os.environ.get("AGENOMICS_PACING_SECONDS", "3"))
+            for index, (name, config) in enumerate(frameworks.items()):
+                if index and pacing > 0:
+                    time.sleep(pacing)
                 if config["takes_context"]:
                     ctx = with_fresh_canary(replace(condition))
                 elif condition.cohort_type == "natural":

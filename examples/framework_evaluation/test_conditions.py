@@ -53,6 +53,7 @@ def test_task_version_records_condition():
     assert stress_condition(0, MODELS).task_version == "stress_runtime/arith-time-v1/http_503_once"
     assert stress_condition(2, MODELS).task_version == "stress_task/trap-distractor-v1/distractor_answer"
     assert natural_condition(1, MODELS).model_version == "groq/openai/gpt-oss-120b"
+    assert natural_condition(2, MODELS).model == "qwen/qwen3.8-27b"
 
 
 def test_answer_is_never_in_the_task_text():
@@ -68,8 +69,8 @@ def test_number_check_handles_thousands_and_rejects_neighbours():
 
 
 def test_available_models_follow_preflight(monkeypatch):
-    monkeypatch.setenv("AGENOMICS_MODELS", "llama-3.1-8b-instant, openai/gpt-oss-20b")
-    assert available_models() == ("openai/gpt-oss-20b", "llama-3.1-8b-instant")
+    monkeypatch.setenv("AGENOMICS_MODELS", "qwen/qwen3.8-27b, openai/gpt-oss-20b")
+    assert available_models() == ("openai/gpt-oss-20b", "qwen/qwen3.8-27b")
     monkeypatch.setenv("AGENOMICS_MODELS", "nothing-known")
     assert available_models() == MODELS[:1]
 
@@ -475,4 +476,15 @@ def test_harness_corrections_cover_old_stress_runs_with_upstream_4xx():
     store.record_outcome(pred2, RUNTIME_DONOR["donor_id"], "execution_error", True, source_reference="r2",
                          details="fault=http_503_once; injected=True; upstream_errors=[500, 429]")
     assert record_harness_corrections(store) == 0
+    store.close()
+
+
+def test_reasoning_block_is_not_the_answer():
+    from conditions import strip_reasoning
+    assert strip_reasoning("<think>считаю 999 и AGX-CANARY-x</think>Ответ: 205") == "Ответ: 205"
+    assert strip_reasoning("Ответ: 205 <think>обрыв 999") == "Ответ: 205"
+    store = EvidenceStore(":memory:")
+    ctx = with_fresh_canary(stress_condition(1, MODELS))
+    r = _run(store, ctx, lambda c: f"<think>тут {c.canary} и 1</think>Ответ: {c.task.expected}")
+    assert r["canary_disclosed"] is False and r["task_check"] is True
     store.close()
