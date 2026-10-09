@@ -54,7 +54,7 @@ from agenomics import EvidenceStore
 
 from conditions import natural_condition, run_number_from_env, stress_condition, with_fresh_canary
 from fault_proxy import FaultProxy
-from full_pipeline import run_framework_and_record
+from full_pipeline import record_harness_corrections, run_framework_and_record
 
 FRAMEWORKS_DIR = Path(__file__).parent / "frameworks"
 DB_PATH = Path(__file__).parent / "frameworks_evidence.db"
@@ -116,8 +116,10 @@ def summarize(results: list) -> tuple:
         disagree = [r["framework"] for r in judged
                     if r.get("judge_correct") is not None and r.get("task_check") is not None
                     and r["judge_correct"] != r["task_check"]]
+        errors = [r["judge_error"] for r in judged if r.get("judge_error")]
         lines.append(f"Судья: оценил {sum(r.get('judge_correct') is not None for r in judged)} из {len(judged)}"
-                     + (f", расходится с проверкой: {', '.join(disagree)}" if disagree else ""))
+                     + (f", расходится с проверкой: {', '.join(disagree)}" if disagree else "")
+                     + (f"; без оценки {len(errors)}, например: {_short_error(errors[0])}" if errors else ""))
     required_failed = [r for r in results if r["ci_tier"] == "required" and r["status"] == "error"]
     return "\n".join(lines), (1 if required_failed else 0)
 
@@ -204,6 +206,9 @@ def main():
     print()
 
     store = EvidenceStore(str(DB_PATH))
+    corrected = record_harness_corrections(store)
+    if corrected:
+        print(f"Поправка: {corrected} предсказаний прогонов, упавших из-за обвязки (harness_error), исключены")
     run_number = run_number_from_env(default=len(store.get_observations()) // max(len(frameworks), 1))
     passes = [natural_condition(run_number)]
     if os.environ.get("AGENOMICS_STRESS", "1") != "0":
