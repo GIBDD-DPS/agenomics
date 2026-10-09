@@ -33,8 +33,9 @@ MODELS = (
     "llama-3.1-8b-instant",
     "qwen/qwen3-32b",
 )
-# Судья выбирается первым из списка, кто не совпадает с моделью агента.
-JUDGE_MODELS = ("llama-3.3-70b-versatile", "openai/gpt-oss-120b", "qwen/qwen3-32b")
+# Судья выбирается первым из списка, кто не совпадает с моделью агента и
+# есть у Groq. gpt-oss-20b последний: запасной, когда других нет.
+JUDGE_MODELS = ("llama-3.3-70b-versatile", "openai/gpt-oss-120b", "qwen/qwen3-32b", "openai/gpt-oss-20b")
 
 SYSTEM_PROMPT = "You are a helpful assistant."
 

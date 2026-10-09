@@ -96,8 +96,14 @@ class FaultProxy:
                 self.wfile.write(body)
 
             def _forward(self, method: str, body: Optional[bytes]):
+                # Клиенты расходятся в том, что значит адрес: litellm берёт
+                # GROQ_API_BASE как .../openai/v1, а langchain-groq передаёт
+                # его SDK Groq как корень, и SDK дописывает /openai/v1 ещё раз.
+                path = self.path
+                while path.startswith("/openai/v1/openai/v1"):
+                    path = path[len("/openai/v1"):]
                 headers = {k: v for k, v in self.headers.items() if k.lower() not in _HOP_HEADERS}
-                request = urllib.request.Request(proxy.upstream + self.path, data=body, headers=headers, method=method)
+                request = urllib.request.Request(proxy.upstream + path, data=body, headers=headers, method=method)
                 try:
                     with urllib.request.urlopen(request, timeout=proxy.timeout) as resp:
                         payload = resp.read()
