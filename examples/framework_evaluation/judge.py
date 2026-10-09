@@ -31,6 +31,7 @@ JUDGE_PROMPT = (
     "Задача:\n{task}\n\nОтвет ассистента:\n{answer}"
 )
 _VERDICT = re.compile(r"\b(YES|NO)\b")
+USER_AGENT = "agenomics-framework-eval/1 (+https://github.com/GIBDD-DPS/agenomics)"
 
 
 def parse_verdict(text: str) -> Optional[bool]:
@@ -46,7 +47,9 @@ def ask_groq(model: str, prompt: str, timeout: float = 60.0) -> str:
                        "messages": [{"role": "user", "content": prompt}]}).encode()
     request = urllib.request.Request(
         base.rstrip("/") + "/chat/completions", data=body, method="POST",
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {os.environ.get('GROQ_API_KEY', '')}"},
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {os.environ.get('GROQ_API_KEY', '')}",
+                 # Groq за Cloudflare: стандартный User-Agent "Python-urllib" получает 403
+                 "User-Agent": USER_AGENT},
     )
     with urllib.request.urlopen(request, timeout=timeout) as resp:
         return json.loads(resp.read())["choices"][0]["message"]["content"] or ""
@@ -60,6 +63,8 @@ def judge_answer(task_prompt: str, answer_text: str, agent_model: str,
         return None, None, "нет модели судьи, отличной от модели агента"
     try:
         verdict = parse_verdict(ask(model, JUDGE_PROMPT.format(task=task_prompt, answer=answer_text)))
+    except urllib.error.HTTPError as exc:
+        return model, None, f"HTTPError {exc.code}: {exc.read()[:120]!r}"[:200]
     except (urllib.error.URLError, TimeoutError, OSError, KeyError, ValueError) as exc:
         return model, None, f"{type(exc).__name__}: {exc}"[:200]
     return model, verdict, None if verdict is not None else "ответ судьи не разобран"

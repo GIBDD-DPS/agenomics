@@ -86,13 +86,16 @@ jobs:
           import json, os, sys, urllib.request
           from conditions import JUDGE_MODELS, MODELS
           wanted = list(dict.fromkeys(MODELS + JUDGE_MODELS))
+          from judge import USER_AGENT
           req = urllib.request.Request("https://api.groq.com/openai/v1/models",
-                                       headers={"Authorization": f"Bearer {os.environ.get('GROQ_API_KEY', '')}"})
+                                       headers={"Authorization": f"Bearer {os.environ.get('GROQ_API_KEY', '')}",
+                                                "User-Agent": USER_AGENT})
           try:
               with urllib.request.urlopen(req, timeout=30) as r:
                   have = {m["id"] for m in json.load(r)["data"]}
           except Exception as exc:
-              print(f"/models недоступен ({type(exc).__name__}): ротация по всем моделям", file=sys.stderr)
+              print(f"/models недоступен ({type(exc).__name__} {getattr(exc, 'code', '')}): ротация по всем моделям",
+                    file=sys.stderr)
               sys.exit(0)
           missing = [m for m in wanted if m not in have]
           print(f"нет у Groq: {missing or 'все есть'}", file=sys.stderr)

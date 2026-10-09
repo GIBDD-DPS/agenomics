@@ -336,3 +336,79 @@ def test_summary_exit_code_ignores_stress_failures():
     assert code == 0 and "Стресс (stress_runtime" in text and "событий 1 из 1" in text
     _, code = summarize([dict(natural[0], status="error")] + stress)
     assert code == 1
+
+
+# --- Поправка: ошибки обвязки (harness_error) --------------------------------------
+
+LLAMA_400 = ("BadRequestError: Error code: 400 - {'error': {'message': \"code=400, message=Only allowed string "
+             "values for 'tool_choice' are [none, auto, required], type=invalid_request_error\"")
+
+
+def test_harness_error_is_classified_as_infrastructure():
+    from classify_failures import classify_error
+    from full_pipeline import _INFRASTRUCTURE_ERROR_CLASSES
+    assert classify_error(f"[other] Framework llamaindex_bot: {LLAMA_400}"[:200]) == "harness_error"
+    assert "harness_error" in _INFRASTRUCTURE_ERROR_CLASSES
+
+
+def test_harness_corrections_exclude_old_runs_once():
+    """Прогоны, записанные как падение агента до появления класса
+    harness_error, исключаются новой записью, а не правкой старой."""
+    import classify_failures
+    import full_pipeline
+    from full_pipeline import record_harness_corrections
+    store = EvidenceStore(":memory:")
+    ctx = natural_condition(0, MODELS)
+    _run(store, ctx, lambda c: f"Ответ: {c.task.expected}")
+    # имитация старой записи: класс harness_error тогда не распознавался
+    original = classify_failures._PATTERNS
+    full_pipeline.classify_error.__globals__["_PATTERNS"] = [p for p in original if p[0] != "harness_error"]
+    try:
+        bad = _run(store, natural_condition(0, MODELS), lambda c: (_ for _ in ()).throw(RuntimeError(LLAMA_400)))
+    finally:
+        full_pipeline.classify_error.__globals__["_PATTERNS"] = original
+    assert bad["error_class"] == "other"
+    assert validate(store, target="runtime_failure").n_positive == 1
+    assert record_harness_corrections(store) == 3  # три цели прогона
+    assert record_harness_corrections(store) == 0  # повтор ничего не добавляет
+    assert validate(store, target="runtime_failure").n_positive == 0
+    assert validate(store, target="runtime_failure").n_pairs == 1
+    after = _run(store, natural_condition(0, MODELS), lambda c: f"Ответ: {c.task.expected}")
+    clean = EvidenceStore(":memory:")  # та же история, но без прогона с ошибкой обвязки
+    _run(clean, natural_condition(0, MODELS), lambda c: f"Ответ: {c.task.expected}")
+    reference = _run(clean, natural_condition(0, MODELS), lambda c: f"Ответ: {c.task.expected}")
+    assert after["score"] == reference["score"]  # и в историю score прогон не входит
+    clean.close()
+    assert store.verify_prediction_integrity()["violations"] == []
+    store.close()
+
+
+def test_judge_sends_own_user_agent(monkeypatch):
+    """Groq за Cloudflare: запрос с User-Agent Python-urllib получает 403."""
+    import judge
+    seen = {}
+
+    class Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return json.dumps({"choices": [{"message": {"content": "YES"}}]}).encode()
+
+    def fake_urlopen(request, timeout=None):
+        seen.update({k.lower(): v for k, v in request.header_items()})
+        return Resp()
+
+    monkeypatch.setattr(judge.urllib.request, "urlopen", fake_urlopen)
+    assert judge.ask_groq("llama-3.3-70b-versatile", "x") == "YES"
+    assert seen["user-agent"].startswith("agenomics-framework-eval") and "python-urllib" not in seen["user-agent"].lower()
+
+
+def test_llamaindex_function_agent_has_a_tool():
+    """С пустым списком инструментов FunctionAgent шлёт tool_choice=null,
+    и Groq отвечает 400 (прогоны 119-125)."""
+    source = (Path(__file__).resolve().parent / "frameworks" / "llamaindex_bot.py").read_text(encoding="utf-8")
+    assert "tools=[]" not in source and "FunctionTool.from_defaults" in source

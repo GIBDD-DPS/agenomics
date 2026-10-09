@@ -20,6 +20,11 @@ import sqlite3
 from collections import Counter, defaultdict
 
 _PATTERNS = [
+    # Ошибка нашей обвязки, а не агента и не провайдера: запрос, который
+    # собрал шаблон, провайдер отклоняет по форме. Первый случай: llamaindex
+    # FunctionAgent с пустым списком инструментов слал "tool_choice": null
+    # (прогоны 119-125). Считается сбоем окружения и исключается.
+    ("harness_error", re.compile(r"Only allowed string values for 'tool_choice'")),
     ("rate_limit", re.compile(r"RateLimitError|rate limit", re.IGNORECASE)),
     ("import_error", re.compile(r"ImportError|ModuleNotFoundError")),
     ("model_unavailable", re.compile(r"does not exist or you do not have access|model_not_found", re.IGNORECASE)),

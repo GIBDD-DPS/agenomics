@@ -14,11 +14,20 @@ CI_TIER = "required"  # required: падение валит CI; experimental: т
 def run(ctx):
     import asyncio
     from llama_index.core.agent.workflow import FunctionAgent
+    from llama_index.core.tools import FunctionTool
     from llama_index.llms.groq import Groq
 
+    def current_date() -> str:
+        """Return today's date (ISO format)."""
+        import datetime
+        return datetime.date.today().isoformat()
+
     async def _run():
+        # Один нейтральный инструмент, к задачам не относящийся: с пустым
+        # списком FunctionAgent отправляет "tool_choice": null, и Groq
+        # отвечает 400 (прогоны 119-125 после перехода на run(ctx)).
         agent = FunctionAgent(
-            tools=[],
+            tools=[FunctionTool.from_defaults(fn=current_date)],
             llm=Groq(model=ctx.model, api_key=ctx.api_key, api_base=ctx.base_url),
             system_prompt=ctx.system,
         )

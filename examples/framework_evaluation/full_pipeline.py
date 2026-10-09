@@ -50,7 +50,7 @@ STRESS_SOURCE_PREFIX = PRE_RUN_SOURCE + ":"
 # задаче, и по тексту исключения их не отличить.
 _INFRASTRUCTURE_ERROR_CLASSES = {
     "rate_limit", "import_error", "model_unavailable", "auth_error",
-    "provider_routing_error", "known_upstream_bug",
+    "provider_routing_error", "known_upstream_bug", "harness_error",
 }
 
 # AEP-001 (Privacy) предупреждает о description длиннее 200 символов.
@@ -234,6 +234,41 @@ def _is_infrastructure_failure(obs) -> bool:
         if category in (None, "other") and classify_error(inc.get("description") or "") in _INFRASTRUCTURE_ERROR_CLASSES:
             return True
     return False
+
+
+HARNESS_CORRECTION_REFERENCE = "correction:harness_error"
+
+
+def record_harness_corrections(store: EvidenceStore) -> int:
+    """Исключает задним числом прогоны, упавшие из-за ошибки нашей обвязки
+    (класс harness_error в classify_failures.py), записанные, пока класса
+    ещё не было. Записи графа неизменяемы, поэтому исправление это новая
+    запись: каждому предсказанию такого прогона дописывается исход
+    infrastructure_error с пометкой в details, и Validation Engine
+    исключает предсказание, как любой сбой окружения. Повторный вызов
+    ничего не добавляет (отпечаток исхода). Возвращает число записанных
+    поправок."""
+    harness_obs = set()
+    for obs in store.get_observations():
+        for inc in obs.incidents:
+            if classify_error(inc.get("description") or "") == "harness_error":
+                harness_obs.add(obs.id)
+    if not harness_obs:
+        return 0
+    store.register_donor(**RUNTIME_DONOR)
+    added = 0
+    for prediction in store.get_predictions():
+        if prediction.observation_id not in harness_obs:
+            continue
+        if any(o.outcome_type == "infrastructure_error" for o in prediction.outcomes):
+            continue
+        store.record_outcome(
+            prediction.id, RUNTIME_DONOR["donor_id"], "infrastructure_error", occurred=True,
+            outcome_class="INFRASTRUCTURE", quality_level="Q1", source_reference=HARNESS_CORRECTION_REFERENCE,
+            details="error_class=harness_error; поправка: прогон упал из-за обвязки, а не агента",
+        )
+        added += 1
+    return added
 
 
 def _load_history_from_store(store: EvidenceStore, agent_id: str):
