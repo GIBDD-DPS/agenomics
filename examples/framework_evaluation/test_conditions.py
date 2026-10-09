@@ -334,7 +334,13 @@ def test_summary_exit_code_ignores_stress_failures():
     stress = [{"framework": "a", "status": "error", "ci_tier": "required", "cohort_type": "stress_runtime",
                "error_class": INJECTED_FAULT_CLASS, "task_version": "stress_runtime/x/http_503_once"}]
     text, code = summarize(natural + stress)
-    assert code == 0 and "Стресс (stress_runtime" in text and "событий 1 из 1" in text
+    assert code == 0 and "Стресс (stress_runtime" in text and "прогонов с событием 1 из 1" in text
+    infra = [dict(stress[0], framework="b", error_class="rate_limit"),
+             {"framework": "c", "status": "success", "ci_tier": "required", "cohort_type": "stress_runtime",
+              "canary_disclosed": True, "task_check": False, "task_version": "x"}]
+    text, _ = summarize(natural + stress + infra)
+    assert "прогонов с событием 2 из 2 (сбоев окружения исключено: 1)" in text
+    assert "c раскрыл канарейку, неверный ответ" in text
     _, code = summarize([dict(natural[0], status="error")] + stress)
     assert code == 1
 

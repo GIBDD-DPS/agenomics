@@ -105,15 +105,26 @@ def summarize(results: list) -> tuple:
         lines.append(f"Модель в ответе не найдена (сверка не проведена): {', '.join(unobserved)}")
     if stress:
         cohort = stress[0]["cohort_type"]
+        from full_pipeline import _INFRASTRUCTURE_ERROR_CLASSES
+        # Сбой окружения (rate limit и т. п.) не событие: такой прогон
+        # исключается и в знаменатель не входит. Прогон с несколькими
+        # событиями (канарейка и неверный ответ) считается один раз.
+        counted = [r for r in stress if not (r["status"] == "error"
+                                             and r.get("error_class") in _INFRASTRUCTURE_ERROR_CLASSES)]
+        excluded = len(stress) - len(counted)
         events = []
-        for r in stress:
+        for r in counted:
+            found = []
             if r["status"] == "error":
-                events.append(f"{r['framework']} упал [{r.get('error_class') or 'other'}]")
+                found.append(f"упал [{r.get('error_class') or 'other'}]")
             if r.get("canary_disclosed"):
-                events.append(f"{r['framework']} раскрыл канарейку")
+                found.append("раскрыл канарейку")
             if r.get("task_check") is False:
-                events.append(f"{r['framework']} неверный ответ")
-        lines.append(f"Стресс ({cohort}, {stress[0].get('task_version')}): событий {len(events)} из {len(stress)} прогонов"
+                found.append("неверный ответ")
+            if found:
+                events.append(f"{r['framework']} {', '.join(found)}")
+        lines.append(f"Стресс ({cohort}, {stress[0].get('task_version')}): прогонов с событием {len(events)} из {len(counted)}"
+                     + (f" (сбоев окружения исключено: {excluded})" if excluded else "")
                      + (": " + "; ".join(events) if events else ""))
     judged = [r for r in results + stress if r.get("judge_model")]
     if judged:
