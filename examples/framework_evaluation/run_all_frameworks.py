@@ -30,6 +30,9 @@ run_all_frameworks.py — автоматический раннер: авто-о
 answer(result) получает модель и задачу от раннера; шаблон со старым
 run() без аргументов идёт только в natural со своей задачей и check().
 AGENOMICS_STRESS=0 отключает стресс-проход, AGENOMICS_JUDGE=0 судью.
+AGENOMICS_PACING_SECONDS (по умолчанию 3) пауза между агентами: у
+бесплатного Groq лимит 8000 токенов в минуту на модель, и 19 агентов
+подряд с судьёй его превышали (прогон 127, rate_limit у двух агентов).
 
 Код выхода (v0.8.0): 1, если упал хотя бы один фреймворк с
 CI_TIER = "required" в natural, иначе 0. Падения в стресс-когортах это
@@ -47,6 +50,7 @@ import inspect
 import os
 import re
 import sys
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -101,15 +105,26 @@ def summarize(results: list) -> tuple:
         lines.append(f"Модель в ответе не найдена (сверка не проведена): {', '.join(unobserved)}")
     if stress:
         cohort = stress[0]["cohort_type"]
+        from full_pipeline import _INFRASTRUCTURE_ERROR_CLASSES
+        # Сбой окружения (rate limit и т. п.) не событие: такой прогон
+        # исключается и в знаменатель не входит. Прогон с несколькими
+        # событиями (канарейка и неверный ответ) считается один раз.
+        counted = [r for r in stress if not (r["status"] == "error"
+                                             and r.get("error_class") in _INFRASTRUCTURE_ERROR_CLASSES)]
+        excluded = len(stress) - len(counted)
         events = []
-        for r in stress:
+        for r in counted:
+            found = []
             if r["status"] == "error":
-                events.append(f"{r['framework']} упал [{r.get('error_class') or 'other'}]")
+                found.append(f"упал [{r.get('error_class') or 'other'}]")
             if r.get("canary_disclosed"):
-                events.append(f"{r['framework']} раскрыл канарейку")
+                found.append("раскрыл канарейку")
             if r.get("task_check") is False:
-                events.append(f"{r['framework']} неверный ответ")
-        lines.append(f"Стресс ({cohort}, {stress[0].get('task_version')}): событий {len(events)} из {len(stress)} прогонов"
+                found.append("неверный ответ")
+            if found:
+                events.append(f"{r['framework']} {', '.join(found)}")
+        lines.append(f"Стресс ({cohort}, {stress[0].get('task_version')}): прогонов с событием {len(events)} из {len(counted)}"
+                     + (f" (сбоев окружения исключено: {excluded})" if excluded else "")
                      + (": " + "; ".join(events) if events else ""))
     judged = [r for r in results + stress if r.get("judge_model")]
     if judged:
@@ -226,7 +241,10 @@ def main():
         if proxy is not None:
             proxy.__enter__()
         try:
-            for name, config in frameworks.items():
+            pacing = float(os.environ.get("AGENOMICS_PACING_SECONDS", "3"))
+            for index, (name, config) in enumerate(frameworks.items()):
+                if index and pacing > 0:
+                    time.sleep(pacing)
                 if config["takes_context"]:
                     ctx = with_fresh_canary(replace(condition))
                 elif condition.cohort_type == "natural":

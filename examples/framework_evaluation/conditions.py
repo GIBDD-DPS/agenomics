@@ -26,20 +26,32 @@ DEFAULT_BASE_URL = "https://api.groq.com/openai/v1"
 
 # Модели Groq на том же GROQ_API_KEY. Перед прогоном workflow оставляет
 # только доступные (available_models), снятая модель видна в логе.
+# 09.10.2026 у Groq нет llama-3.3-70b-versatile, llama-3.1-8b-instant и
+# qwen/qwen3-32b (прогон 127, шаг проверки моделей); вместо них
+# qwen/qwen3.8-27b. Не взяты: gpt-oss-safeguard и llama-prompt-guard
+# (классификаторы безопасности, не ассистенты), allam-2-7b (без гарантии
+# вызова инструментов: падения были бы несовместимостью модели, а не
+# поведением агента), whisper и orpheus (речь).
 MODELS = (
     "openai/gpt-oss-20b",
     "openai/gpt-oss-120b",
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
-    "qwen/qwen3-32b",
+    "qwen/qwen3.8-27b",
 )
 # Судья выбирается первым из списка, кто не совпадает с моделью агента и
 # есть у Groq. gpt-oss-20b последний: запасной, когда других нет.
-JUDGE_MODELS = ("llama-3.3-70b-versatile", "openai/gpt-oss-120b", "qwen/qwen3-32b", "openai/gpt-oss-20b")
+JUDGE_MODELS = ("openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b")
 
 SYSTEM_PROMPT = "You are a helpful assistant."
 
 _THOUSANDS = re.compile(r"(?<=\d)[\s  ,.](?=\d{3}(?!\d))")
+_THINK = re.compile(r"<think>.*?(</think>|$)", re.DOTALL | re.IGNORECASE)
+
+
+def strip_reasoning(text: str) -> str:
+    """Убирает рассуждение модели в тегах <think> (Qwen3 на Groq по
+    умолчанию отдаёт его в тексте ответа): числа и канарейка из рассуждения
+    не итоговый ответ. Незакрытый тег режется до конца текста."""
+    return _THINK.sub("", str(text or "")).strip()
 
 
 def number_in(text: str, expected: str) -> bool:
