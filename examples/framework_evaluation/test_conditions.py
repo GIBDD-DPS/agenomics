@@ -412,3 +412,67 @@ def test_llamaindex_function_agent_has_a_tool():
     и Groq отвечает 400 (прогоны 119-125)."""
     source = (Path(__file__).resolve().parent / "frameworks" / "llamaindex_bot.py").read_text(encoding="utf-8")
     assert "tools=[]" not in source and "FunctionTool.from_defaults" in source
+
+
+# --- Удвоенный путь и 4xx апстрима в stress_runtime ----------------------------------
+
+def test_fault_proxy_collapses_doubled_openai_prefix():
+    """langchain-groq берёт GROQ_API_BASE как корень, и SDK Groq дописывает
+    /openai/v1 ещё раз; прокси приводит путь к одному префиксу."""
+    seen = []
+    outer = _Upstream()
+    original = outer.server.RequestHandlerClass.do_POST
+
+    def record(handler):
+        seen.append(handler.path)
+        original(handler)
+
+    outer.server.RequestHandlerClass.do_POST = record
+    try:
+        with FaultProxy(upstream=outer.url) as proxy:
+            _post(proxy.root_url + "/openai/v1/openai/v1")
+            _post(proxy.base_url)
+        assert seen == ["/openai/v1/chat/completions", "/openai/v1/chat/completions"]
+    finally:
+        outer.close()
+
+
+def test_upstream_4xx_under_stress_is_harness_error():
+    upstream = _Upstream(status=404)
+    store = EvidenceStore(":memory:")
+    try:
+        with FaultProxy(upstream=upstream.url) as proxy:
+            def fails(c):
+                _post(c.base_url)  # внедрённый 503
+                _post(c.base_url)  # апстрим 404: запрос собран неверно
+                raise RuntimeError("NotFoundError: Error code: 404 - Unknown request URL")
+
+            summary = _run(store, stress_condition(0, MODELS), fails, proxy=proxy)
+            assert summary["error_class"] == "harness_error"
+            assert validate(store, target="runtime_failure", cohort_types=["stress_runtime"]).n_pairs == 0
+    finally:
+        upstream.close()
+        store.close()
+
+
+def test_harness_corrections_cover_old_stress_runs_with_upstream_4xx():
+    """Прогоны stress_runtime, записанные до класса harness_error: признак
+    в details исхода runtime (upstream_errors=[404])."""
+    from full_pipeline import RUNTIME_DONOR, record_harness_corrections
+    store = EvidenceStore(":memory:")
+    ctx = stress_condition(0, MODELS)
+    obs = store.record_observation("agent-x", 50.0, "Conditional", source=STRESS_SOURCE_PREFIX + "stress_runtime")
+    store.register_donor(**RUNTIME_DONOR)
+    pred = store.record_prediction(obs, "runtime_failure", cohort_type="stress_runtime", task_version=ctx.task_version)
+    store.record_outcome(pred, RUNTIME_DONOR["donor_id"], "execution_error", True, source_reference="r",
+                         details="fault=http_503_once; injected=True; upstream_errors=[404]")
+    assert validate(store, target="runtime_failure", cohort_types=["stress_runtime"]).n_positive == 1
+    assert record_harness_corrections(store) == 1
+    assert validate(store, target="runtime_failure", cohort_types=["stress_runtime"]).n_pairs == 0
+    # настоящий сбой провайдера (5xx) и rate limit поправкой не считаются
+    obs2 = store.record_observation("agent-x", 50.0, "Conditional", source=STRESS_SOURCE_PREFIX + "stress_runtime")
+    pred2 = store.record_prediction(obs2, "runtime_failure", cohort_type="stress_runtime")
+    store.record_outcome(pred2, RUNTIME_DONOR["donor_id"], "execution_error", True, source_reference="r2",
+                         details="fault=http_503_once; injected=True; upstream_errors=[500, 429]")
+    assert record_harness_corrections(store) == 0
+    store.close()

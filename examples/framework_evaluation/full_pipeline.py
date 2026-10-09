@@ -25,6 +25,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 from datetime import datetime
 from typing import Callable, List, Optional
 
@@ -237,6 +238,12 @@ def _is_infrastructure_failure(obs) -> bool:
 
 
 HARNESS_CORRECTION_REFERENCE = "correction:harness_error"
+_UPSTREAM_ERRORS = re.compile(r"upstream_errors=\[([0-9, ]*)\]")
+
+
+def _harness_rejected(codes) -> bool:
+    """Апстрим отклонил запрос по форме (4xx, кроме 429 rate limit)."""
+    return any(400 <= int(c) < 500 and int(c) != 429 for c in codes)
 
 
 def record_harness_corrections(store: EvidenceStore) -> int:
@@ -253,11 +260,19 @@ def record_harness_corrections(store: EvidenceStore) -> int:
         for inc in obs.incidents:
             if classify_error(inc.get("description") or "") == "harness_error":
                 harness_obs.add(obs.id)
+    predictions = store.get_predictions()
+    # stress_runtime: апстрим за прокси отклонил сам запрос (4xx), а прогон
+    # упал; признак в details исхода runtime ("upstream_errors=[404]").
+    for prediction in predictions:
+        for o in prediction.outcomes:
+            match = _UPSTREAM_ERRORS.search(o.details or "") if o.outcome_type == "execution_error" and o.occurred else None
+            if match and _harness_rejected([c for c in match.group(1).replace(" ", "").split(",") if c]):
+                harness_obs.add(prediction.observation_id)
     if not harness_obs:
         return 0
     store.register_donor(**RUNTIME_DONOR)
     added = 0
-    for prediction in store.get_predictions():
+    for prediction in predictions:
         if prediction.observation_id not in harness_obs:
             continue
         if any(o.outcome_type == "infrastructure_error" for o in prediction.outcomes):
@@ -488,6 +503,10 @@ def run_framework_and_record(
         # сам ответил ошибкой, класс остаётся по тексту (обычно окружение).
         if fault_injected and not upstream_errors:
             error_class = INJECTED_FAULT_CLASS
+        # Апстрим отклонил сам запрос (4xx, кроме 429): его собрала наша
+        # обвязка, агент тут ни при чём.
+        elif fault_injected and _harness_rejected(upstream_errors):
+            error_class = "harness_error"
         category = (
             IncidentCategory.INFRASTRUCTURE if error_class in _INFRASTRUCTURE_ERROR_CLASSES
             else IncidentCategory.OTHER

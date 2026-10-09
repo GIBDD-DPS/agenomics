@@ -99,6 +99,7 @@ jobs:
               sys.exit(0)
           missing = [m for m in wanted if m not in have]
           print(f"нет у Groq: {missing or 'все есть'}", file=sys.stderr)
+          print(f"есть у Groq: {sorted(have)}", file=sys.stderr)
           print("AGENOMICS_MODELS=" + ",".join(m for m in wanted if m in have))
           PY
 
