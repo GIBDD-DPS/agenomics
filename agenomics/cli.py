@@ -134,7 +134,8 @@ def cmd_validate(args) -> int:
     качества кода, "insufficient_data" на ранних данных нормален."""
     from dataclasses import asdict
     from .validation import (
-        evidence_profile_text, validate, validate_all_targets, validation_report_markdown, validation_report_text,
+        cohort_summary, evidence_profile_text, validate, validate_all_targets, validation_report_markdown,
+        validation_report_text,
     )
 
     if not Path(args.db_path).exists():
@@ -150,6 +151,8 @@ def cmd_validate(args) -> int:
     )
     if args.cohort_type:
         kwargs["cohort_types"] = args.cohort_type
+    if args.since:
+        kwargs["since"] = args.since
     try:
         # Без --target отчёт строится по каждой цели отдельно (v0.9.2):
         # одна оценка записана под каждую цель, и смешивать их нельзя.
@@ -159,24 +162,27 @@ def cmd_validate(args) -> int:
             reports = validate_all_targets(store, **kwargs)
         profile = store.evidence_profile(args.agent_id)
         integrity = store.verify_prediction_integrity()
+        cohort = cohort_summary(store, trust_model_versions=args.trust_model_version,
+                                cohort_types=kwargs.get("cohort_types", ["natural"]), since=args.since)
     except ValueError as exc:
         print(f"Ошибка: {exc}", file=sys.stderr)
         return 2
     finally:
         store.close()
     if args.report:
-        Path(args.report).write_text(validation_report_markdown(profile, reports, integrity), encoding="utf-8")
+        Path(args.report).write_text(validation_report_markdown(profile, reports, integrity, cohort), encoding="utf-8")
     if args.json:
         # evidence_profile рядом с целями: имя цели с ним не совпадёт.
         data = {t: asdict(r) for t, r in reports.items()}
         data["evidence_profile"] = asdict(profile)
         data["prediction_integrity"] = integrity
+        data["cohort_summary"] = cohort
         print(json.dumps(data, ensure_ascii=False, indent=2, default=str))
     elif not reports:
         print(evidence_profile_text(profile))
         print("Validation Engine: в базе нет предсказаний")
     else:
-        print(evidence_profile_text(profile, reports) + "\n")
+        print(evidence_profile_text(profile, reports, cohort) + "\n")
         print("\n\n".join(validation_report_text(r) for r in reports.values()))
     return 0
 
@@ -196,7 +202,8 @@ def cmd_scorecard(args) -> int:
         cohorts = args.cohort_type or ["natural"]
         if "all" in cohorts:
             cohorts = cohorts_in_store(store) or ["natural"]
-        tables = {c: accumulation_scorecard(store, trust_model_versions=args.trust_model_version, cohort_type=c)
+        tables = {c: accumulation_scorecard(store, trust_model_versions=args.trust_model_version, cohort_type=c,
+                                            since=args.since)
                   for c in cohorts}
     except ValueError as exc:
         print(f"Ошибка: {exc}", file=sys.stderr)
@@ -267,6 +274,8 @@ def main(argv=None) -> int:
     p_validate.add_argument("--cohort-type", action="append", default=None,
                             help="тип когорты (natural, stress_runtime, stress_security, stress_task, external) "
                                  "или all; по умолчанию natural, можно повторять")
+    p_validate.add_argument("--since", default=None, metavar="ISO",
+                            help="только предсказания, замороженные не раньше этой даты (например, смена условий сбора)")
     p_validate.add_argument("--calibration-fraction", type=float, default=0.6)
     p_validate.add_argument("--json", action="store_true")
     p_validate.set_defaults(func=cmd_validate)
@@ -278,6 +287,7 @@ def main(argv=None) -> int:
     p_scorecard.add_argument("--trust-model-version", action="append", default=None)
     p_scorecard.add_argument("--cohort-type", action="append", default=None,
                              help="когорта или all (по scorecard на каждую); по умолчанию natural")
+    p_scorecard.add_argument("--since", default=None, metavar="ISO")
     p_scorecard.add_argument("--json", action="store_true")
     p_scorecard.set_defaults(func=cmd_scorecard)
 

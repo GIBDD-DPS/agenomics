@@ -36,6 +36,7 @@ baseline", а не доказанную предсказательную вал�
 """
 
 import random
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -58,6 +59,20 @@ ALL_COHORTS = "all"
 # согласие имеет смысл. У security доноры смотрят на разное (паттерн
 # секрета в логе и раскрытие канарейки), поэтому согласие не считается.
 DONOR_AGREEMENT_TARGETS = ("task_failure",)
+
+# [Unreleased] Правило вывода стресс-сценария из ротации (ТЗ
+# validation-data-acquisition-v1, раздел 5.4): после min_runs прогонов
+# сценария частота событий вне [low, high] значит, что сценарий не различает
+# агентов. Решение только по общей частоте, не по связи со score.
+SCENARIO_RETIREMENT = {"min_runs": 50, "low": 0.05, "high": 0.95}
+
+# Цель, по которой оценивается стресс-сценарий: событие, ради которого он
+# устроен (у stress_task это неверный ответ, у stress_runtime падение).
+SCENARIO_TARGETS = {
+    "stress_runtime": "runtime_failure",
+    "stress_security": "security_incident",
+    "stress_task": "task_failure",
+}
 
 # [v0.9.5] Цели, которые больше не создаются, но остаются в накопленных
 # базах. Отчёт по ним строится (данные есть), но помечается и идёт после
@@ -103,6 +118,8 @@ class ValidationPair:
     verified: bool = False                    # хотя бы один исход human/ground_truth
     max_quality: Optional[str] = None         # [v0.9.6] лучший уровень качества исходов пары
     cohort_type: str = DEFAULT_COHORT         # [Unreleased]
+    model_version: Optional[str] = None       # [Unreleased] из снимка: модель прогона
+    task_version: Optional[str] = None        # [Unreleased] из снимка: условие (когорта/задача/сценарий)
     group_outcomes: Dict[str, bool] = field(default_factory=dict)  # [Unreleased] исход по каждой группе
 
     @property
@@ -197,6 +214,10 @@ class ValidationReport:
     # оценили две и больше групп, сколько из них одинаково, и расхождения
     # вида "llm_judge=0,task_checker=1" -> число пар.
     donor_agreement: Optional[Dict] = None
+    # [Unreleased] Пары и события по условию (task_version) и по модели:
+    # условия не должны смешиваться незаметно.
+    by_condition: Dict[str, Dict] = field(default_factory=dict)
+    by_model: Dict[str, Dict] = field(default_factory=dict)
 
 
 # --- Сборка пар ------------------------------------------------------------
@@ -217,6 +238,7 @@ def _collect_pairs(
     trust_model_versions: Optional[Sequence[str]] = None,
     min_quality: Optional[str] = None,
     cohort_types: Optional[Sequence[str]] = DEFAULT_COHORT_TYPES,
+    since: Optional[datetime] = None,
 ) -> Tuple[List[ValidationPair], int]:
     genome_by_obs, version_by_obs = {}, {}
     for obs_id, genome_hash, version in store._conn.execute(
@@ -235,6 +257,8 @@ def _collect_pairs(
         if cohort_types is not None and p.cohort_type not in cohort_types:
             continue
         frozen = _parse_time(p.frozen_at)
+        if since is not None and frozen < since:
+            continue
         # [v0.9.2] Повторная проверка порядка времени. record_outcome() уже
         # отклоняет исход не позже заморозки, но база могла быть
         # импортирована или исправлена вручную: проспективная проверка не
@@ -268,6 +292,8 @@ def _collect_pairs(
             max_quality=max((o.quality_level for o in matching if o.quality_level), default=None,
                             key=QUALITY_ORDER.index),
             cohort_type=p.cohort_type,
+            model_version=p.snapshot.get("model_version"),
+            task_version=p.snapshot.get("task_version"),
             group_outcomes={g: any(o.occurred for o in matching if o.independence_group == g)
                             for g in sorted({o.independence_group for o in matching})},
         ))
@@ -586,6 +612,7 @@ def validate(
     trust_model_versions: Optional[Sequence[str]] = None,
     min_quality: Optional[str] = None,
     cohort_types: Optional[Sequence[str]] = DEFAULT_COHORT_TYPES,
+    since: Optional[datetime] = None,
     calibration_fraction: float = 0.6,
     min_test_pairs: int = 30,
     min_class_count: int = 5,
@@ -596,6 +623,7 @@ def validate(
     if not 0.0 < calibration_fraction < 1.0:
         raise ValueError("calibration_fraction должен быть в (0, 1)")
     cohort_types = _normalize_cohorts(cohort_types)
+    since = _normalize_since(since)
     filters = {
         "target": target, "outcome_types": list(outcome_types) if outcome_types else None,
         "exclude_outcome_types": list(exclude_outcome_types),
@@ -604,6 +632,7 @@ def validate(
         "trust_model_versions": list(trust_model_versions) if trust_model_versions else None,
         "min_quality": min_quality,
         "cohort_types": list(cohort_types) if cohort_types is not None else [ALL_COHORTS],
+        "since": since.isoformat() if since else None,
     }
     if min_quality is not None and min_quality not in QUALITY_ORDER:
         raise ValueError(f"min_quality должен быть одним из {QUALITY_ORDER}, получено {min_quality!r}")
@@ -618,7 +647,7 @@ def validate(
             )
     pairs, n_rejected = _collect_pairs(
         store, target, outcome_types, exclude_outcome_types, independence_groups, verification, agent_id,
-        trust_model_versions, min_quality, cohort_types,
+        trust_model_versions, min_quality, cohort_types, since,
     )
     labels = [p.occurred for p in pairs]
     risks = [p.risk for p in pairs]
@@ -674,6 +703,8 @@ def validate(
             )
     report.n_q4_pairs = sum(1 for p in pairs if p.max_quality == "Q4")
     report.cohort_types = sorted({p.cohort_type for p in pairs})
+    report.by_condition = condition_breakdown(pairs, "task_version")
+    report.by_model = condition_breakdown(pairs, "model_version")
     if len(report.cohort_types) > 1:
         report.cohort_warning = (
             f"в выборке смешаны когорты {report.cohort_types}: вывод по протоколу делается по каждой отдельно"
@@ -683,6 +714,36 @@ def validate(
     if _with_claims:
         report.claim_level, report.claim_blockers = _claim_level(store, report, target, filters, calibration_fraction)
     return report
+
+
+def _normalize_since(since) -> Optional[datetime]:
+    """Дата или строка ISO; без часового пояса считается UTC."""
+    if since is None or since == "":
+        return None
+    value = since if isinstance(since, datetime) else datetime.fromisoformat(str(since))
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+def condition_breakdown(pairs: Sequence[ValidationPair], key: str) -> Dict[str, Dict]:
+    """[Unreleased] Пары и события по значению поля пары (task_version или
+    model_version); пары без значения идут под "—" (до снимков v0.9.6)."""
+    out: Dict[str, Dict] = {}
+    for p in pairs:
+        row = out.setdefault(getattr(p, key) or "—", {"pairs": 0, "events": 0})
+        row["pairs"] += 1
+        row["events"] += int(p.occurred)
+    for row in out.values():
+        row["rate"] = round(row["events"] / row["pairs"], 4) if row["pairs"] else None
+    return dict(sorted(out.items()))
+
+
+def scenario_rule_status(pairs: int, events: int) -> str:
+    """[Unreleased] Статус правила 5.4 для одного сценария."""
+    r = SCENARIO_RETIREMENT
+    if pairs < r["min_runs"]:
+        return f"рано ({pairs} < {r['min_runs']})"
+    rate = events / pairs
+    return "различает" if r["low"] <= rate <= r["high"] else "заменить"
 
 
 def donor_agreement(pairs: Sequence[ValidationPair]) -> Dict:
@@ -806,7 +867,99 @@ def _verdict(report: ValidationReport, min_test_pairs: int, min_class_count: int
     )
 
 
-def evidence_profile_text(profile, reports: Optional[Dict[str, "ValidationReport"]] = None) -> str:
+_ERROR_CLASS = re.compile(r"error_class=([A-Za-z_]+)")
+
+
+def cohort_summary(store, trust_model_versions: Optional[Sequence[str]] = None,
+                   cohort_types: Optional[Sequence[str]] = DEFAULT_COHORT_TYPES, since=None) -> Dict:
+    """[Unreleased] Объём той выборки, которую проверяет отчёт: те же когорта,
+    версия модели доверия и период, что у validate(). Шапка отчёта раньше
+    показывала всю базу, и отчёт стресс-когорты на 60 парах выглядел как
+    построенный на тысячах наблюдений.
+
+    Прогон исключён, если у его предсказаний есть исход infrastructure_error
+    (сбой окружения или обвязки); класс берётся из details исхода."""
+    cohort_types = _normalize_cohorts(cohort_types)
+    since = _normalize_since(since)
+    rows = store._conn.execute(
+        "SELECT p.id, p.observation_id, p.agent_id, COALESCE(p.cohort_type, ?), p.frozen_at, "
+        "o.genome_hash, o.trust_model_version FROM predictions p JOIN observations o ON o.id = p.observation_id",
+        (DEFAULT_COHORT,),
+    ).fetchall()
+    selected = [
+        r for r in rows
+        if (cohort_types is None or r[3] in cohort_types)
+        and (not trust_model_versions or r[6] in trust_model_versions)
+        and (since is None or _parse_time(r[4]) >= since)
+    ]
+    pred_ids = [r[0] for r in selected]
+    obs_ids = sorted({r[1] for r in selected})
+    summary = {
+        "runs": len(obs_ids), "predictions": len(pred_ids),
+        "agents": len({r[2] for r in selected}), "configurations": len({r[5] for r in selected if r[5]}),
+        "cohort_types": sorted({r[3] for r in selected}),
+        "period_start": min((r[4] for r in selected), default=None),
+        "period_end": max((r[4] for r in selected), default=None),
+        "excluded_runs": 0, "excluded_by_class": {}, "evidence_by_quality": {}, "outcomes_by_quality": {},
+        "q4_outcomes": 0,
+    }
+    if not pred_ids:
+        return summary
+
+    def chunks(values, size=500):
+        for i in range(0, len(values), size):
+            yield values[i:i + size]
+
+    excluded: Dict[int, str] = {}
+    by_quality: Dict[str, int] = {}
+    for chunk in chunks(pred_ids):
+        marks = ",".join("?" * len(chunk))
+        for obs_id, outcome_type, occurred, details, quality in store._conn.execute(
+            "SELECT p.observation_id, x.outcome_type, x.occurred, x.details, x.quality_level FROM outcomes x "
+            f"JOIN predictions p ON p.id = x.prediction_id WHERE x.prediction_id IN ({marks})", chunk,
+        ):
+            if outcome_type == "infrastructure_error" and occurred:
+                match = _ERROR_CLASS.search(details or "")
+                excluded.setdefault(obs_id, match.group(1) if match else "unknown")
+            if quality:
+                by_quality[quality] = by_quality.get(quality, 0) + 1
+    evidence: Dict[str, int] = {}
+    for chunk in chunks(obs_ids):
+        marks = ",".join("?" * len(chunk))
+        for quality, n in store._conn.execute(
+            f"SELECT quality_level, COUNT(*) FROM evidence WHERE observation_id IN ({marks}) GROUP BY quality_level", chunk,
+        ):
+            evidence[quality] = evidence.get(quality, 0) + n
+    classes: Dict[str, int] = {}
+    for error_class in excluded.values():
+        classes[error_class] = classes.get(error_class, 0) + 1
+    summary.update(
+        excluded_runs=len(excluded), excluded_by_class=dict(sorted(classes.items(), key=lambda kv: -kv[1])),
+        evidence_by_quality={q: evidence.get(q, 0) for q in QUALITY_ORDER},
+        outcomes_by_quality={q: by_quality.get(q, 0) for q in QUALITY_ORDER},
+        q4_outcomes=by_quality.get("Q4", 0),
+    )
+    return summary
+
+
+def cohort_summary_text(summary: Dict, filters: Optional[Dict] = None) -> str:
+    filters = filters or {}
+    versions = ", ".join(filters.get("trust_model_versions") or []) or "все версии"
+    since = f", с {filters['since']}" if filters.get("since") else ""
+    excluded = ", ".join(f"{k} {v}" for k, v in summary["excluded_by_class"].items())
+    lines = [
+        f"Выборка отчёта (когорты {', '.join(summary['cohort_types']) or '—'}; trust_model_version {versions}{since}):",
+        f"  прогонов {summary['runs']}, исключено как сбой окружения {summary['excluded_runs']}"
+        + (f" ({excluded})" if excluded else "")
+        + f", агентов {summary['agents']}, конфигураций {summary['configurations']}, предсказаний {summary['predictions']}",
+        "  Доказательства: " + ", ".join(f"{q} {n}" for q, n in summary["evidence_by_quality"].items())
+        + "; исходы: " + ", ".join(f"{q} {n}" for q, n in summary["outcomes_by_quality"].items()),
+    ]
+    return "\n".join(lines)
+
+
+def evidence_profile_text(profile, reports: Optional[Dict[str, "ValidationReport"]] = None,
+                          cohort: Optional[Dict] = None) -> str:
     """Шапка отчёта: объём и качество данных до вердиктов по целям. Без
     неё по отчёту не видно, на чём он построен.
 
@@ -839,6 +992,9 @@ def evidence_profile_text(profile, reports: Optional[Dict[str, "ValidationReport
         cohorts = next(iter(reports.values())).filters.get("cohort_types")
         if cohorts:
             lines.append(f"  Когорты: {', '.join(cohorts)} (по умолчанию natural; --cohort-type выбирает другие)")
+    if cohort is not None:
+        # [Unreleased] Строки выше описывают всю базу; выборка отчёта отдельно.
+        lines.append(cohort_summary_text(cohort, next(iter(reports.values())).filters if reports else None))
     return "\n".join(lines)
 
 
@@ -870,6 +1026,14 @@ def validation_report_text(report: ValidationReport) -> str:
                      f"расхождения {a['disagreements'] or 'нет'}")
     if report.cohort_warning:
         lines.append(f"  ⚠️ {report.cohort_warning}")
+    if len(report.by_condition) > 1 or (report.by_condition and "—" not in report.by_condition):
+        cohorts = report.cohort_types
+        scenario = len(cohorts) == 1 and SCENARIO_TARGETS.get(cohorts[0]) == target
+        parts = [f"{name} {row['events']}/{row['pairs']}"
+                 + (f" [{scenario_rule_status(row['pairs'], row['events'])}]" if scenario else "")
+                 for name, row in report.by_condition.items()]
+        lines.append("  По условиям (событий/пар): " + "; ".join(parts))
+        lines.append("  По моделям: " + ", ".join(f"{m} {row['events']}/{row['pairs']}" for m, row in report.by_model.items()))
     lines += [
         f"  Вся выборка: ROC-AUC {o.roc_auc}, PR-AUC {o.pr_auc} (base rate {o.base_rate}), "
         f"Brier {o.brier}, ECE {report.expected_calibration_error}",
@@ -895,7 +1059,24 @@ def validation_report_text(report: ValidationReport) -> str:
 _UNIT = {"agent": "агентам", "observation": "прогонам", "genome": "конфигурациям"}
 
 
-def validation_report_markdown(profile, reports: Dict[str, "ValidationReport"], integrity: Optional[Dict] = None) -> str:
+def _breakdown_markdown(report: ValidationReport, target: str) -> List[str]:
+    """[Unreleased] Пары и события по условию и по модели; для цели, ради
+    которой устроена стресс-когорта, ещё и статус правила 5.4 по сценарию."""
+    if not report.by_condition:
+        return []
+    cohorts = report.cohort_types
+    scenario = len(cohorts) == 1 and SCENARIO_TARGETS.get(cohorts[0]) == target
+    head = "| Условие | Пар | Событий | Доля |" + (" Правило 5.4 |" if scenario else "")
+    md = ["", "По условиям:", "", head, "|---|---:|---:|---:|" + ("---|" if scenario else "")]
+    for name, row in report.by_condition.items():
+        md.append(f"| {name} | {row['pairs']} | {row['events']} | {row['rate']} |"
+                  + (f" {scenario_rule_status(row['pairs'], row['events'])} |" if scenario else ""))
+    md += ["", "По моделям: " + ", ".join(f"{m} {row['events']}/{row['pairs']}" for m, row in report.by_model.items())]
+    return md
+
+
+def validation_report_markdown(profile, reports: Dict[str, "ValidationReport"], integrity: Optional[Dict] = None,
+                               cohort: Optional[Dict] = None) -> str:
     """[v0.9.6] Полный отчёт для артефакта прогона: когорта, объём,
     доказательства, целостность, каждая цель с вердиктом и уровнем
     утверждений, устаревшие цели отдельно (ТЗ v0.9.6, п. 5.3)."""
@@ -913,7 +1094,30 @@ def validation_report_markdown(profile, reports: Dict[str, "ValidationReport"], 
         f"- фильтры: " + ", ".join(f"{k}={v}" for k, v in filters.items()
                                    if v and k not in ("target", "trust_model_versions", "cohort_types")),
         "",
-        "## Объём",
+    ]
+    if cohort is not None:
+        # [Unreleased] Объём именно этой выборки: когорта, версия, период.
+        excluded = ", ".join(f"{k} {v}" for k, v in cohort["excluded_by_class"].items()) or "нет"
+        md += [
+            "## Объём выборки отчёта",
+            f"- прогонов {cohort['runs']}, из них исключено как сбой окружения или обвязки "
+            f"{cohort['excluded_runs']} ({excluded})",
+            f"- агентов {cohort['agents']}, конфигураций {cohort['configurations']}, предсказаний {cohort['predictions']}",
+            f"- период: {cohort['period_start'] or '—'} … {cohort['period_end'] or '—'}",
+            "",
+            "| Уровень | Доказательств | Исходов |", "|---|---:|---:|",
+            *[f"| {q} | {cohort['evidence_by_quality'].get(q, 0)} | {cohort['outcomes_by_quality'].get(q, 0)} |"
+              for q in QUALITY_ORDER],
+            "",
+            "## Q4: внешнее подтверждение",
+            f"- исходов Q4 в выборке: {cohort['q4_outcomes']}"
+            + ("" if cohort["q4_outcomes"] else
+               ". Framework Evaluation Q4 не пишет: внешний источник исходов — prizolov-sports-ai, своя база "
+               "(сводка и проверка Q4: GET /api/v1/admin/agenomics сервиса)"),
+            "",
+        ]
+    md += [
+        "## Вся база (для контекста)" if cohort is not None else "## Объём",
         f"- наблюдений в базе: {profile.n_observations}, агентов {profile.n_agents}",
         f"- с предсказаниями: прогонов {profile.n_predicted_observations}, агентов {profile.n_predicted_agents}, "
         f"конфигураций {profile.n_predicted_genomes}, предсказаний {profile.n_predictions}",
@@ -969,6 +1173,7 @@ def validation_report_markdown(profile, reports: Dict[str, "ValidationReport"], 
                     f"{h.auc_difference_vs_agent_history_ci}. В framework_evaluation агент и есть фреймворк, "
                     f"так что это и baseline по фреймворку",
                 ]
+            md += _breakdown_markdown(r, target)
             if r.legacy_note:
                 md.append(f"- {r.legacy_note}")
     md += ["", "Пороги и допустимые формулировки: docs/VALIDATION_PROTOCOL.md, раздел 6.", ""]

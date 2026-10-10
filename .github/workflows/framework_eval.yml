@@ -126,9 +126,18 @@ jobs:
       - name: Cohort report and accumulation scorecard
         if: always()
         continue-on-error: true
+        env:
+          CURRENT_REGIME_SINCE: "2026-10-09T14:18:00+00:00"
         run: |
           VERSION=$(python -c "import agenomics; print(agenomics.__version__)")
           agenomics validate frameworks_evidence.db --trust-model-version "$VERSION" --report validation_report.md
+          # [Unreleased] Только текущий режим сбора: ротация по доступным моделям
+          # с запуска 126 (2026-10-09T14:18Z). До него одна задача на шаблон, и
+          # holdout по времени сравнивал бы исходы разных условий.
+          echo "::group::natural с запуска 126"
+          agenomics validate frameworks_evidence.db --trust-model-version "$VERSION" \
+            --since "$CURRENT_REGIME_SINCE" --report validation_report_natural_current.md
+          echo "::endgroup::"
           # [Unreleased] Каждая стресс-когорта отдельно: смешивать когорты нельзя.
           for COHORT in stress_runtime stress_security stress_task; do
             echo "::group::$COHORT"
