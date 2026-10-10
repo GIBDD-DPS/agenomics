@@ -62,7 +62,7 @@ def cohorts_in_store(store) -> List[str]:
 
 
 def accumulation_scorecard(store, trust_model_versions: Optional[Sequence[str]] = None,
-                           cohort_type: str = DEFAULT_COHORT) -> List[ScorecardRow]:
+                           cohort_type: str = DEFAULT_COHORT, since=None) -> List[ScorecardRow]:
     """Строки scorecard одной когорты. С trust_model_versions считаются
     только прогоны этих версий модели доверия и их предсказания и
     доказательства."""
@@ -80,6 +80,13 @@ def accumulation_scorecard(store, trust_model_versions: Optional[Sequence[str]] 
         version_filter += f" AND o.trust_model_version IN ({','.join('?' * len(trust_model_versions))})"
         params += list(trust_model_versions)
     prediction_filter = f" AND COALESCE(p.cohort_type, '{DEFAULT_COHORT}') = ?"
+    # [Unreleased] since: julianday() учитывает смещение часового пояса в ISO,
+    # поэтому время сравнивается как время, а не как строка.
+    if since:
+        from .validation import _normalize_since
+        version_filter += (" AND o.id IN (SELECT observation_id FROM predictions "
+                           "WHERE julianday(frozen_at) >= julianday(?))")
+        params.append(_normalize_since(since).isoformat())
     n_obs, n_agents, n_genomes = conn.execute(
         "SELECT COUNT(DISTINCT p.observation_id), COUNT(DISTINCT p.agent_id), COUNT(DISTINCT o.genome_hash) "
         f"FROM predictions p JOIN observations o ON o.id = p.observation_id WHERE 1=1{version_filter}{prediction_filter}",
@@ -106,7 +113,7 @@ def accumulation_scorecard(store, trust_model_versions: Optional[Sequence[str]] 
         "independence_groups": groups, "evidence_q3": evidence.get("Q3", 0), "evidence_q4": evidence.get("Q4", 0) + q4_outcomes,
     }
     rows = [_row(metric, _LABELS[metric], value, ACCUMULATION_TARGETS[metric]) for metric, value in current.items()]
-    reports = validate_all_targets(store, trust_model_versions=trust_model_versions, cohort_types=[cohort_type])
+    reports = validate_all_targets(store, trust_model_versions=trust_model_versions, cohort_types=[cohort_type], since=since)
     for target, report in reports.items():
         if report.legacy_note:
             continue

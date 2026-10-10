@@ -53,6 +53,7 @@ from .validation import (
     validate, validate_all_targets, prediction_targets, build_pairs, validation_report_text,
     ValidationReport, ValidationPair, VERDICTS,
     validation_report_markdown, PROTOCOL_THRESHOLDS, CLAIM_LEVELS, donor_agreement,
+    cohort_summary, scenario_rule_status, SCENARIO_RETIREMENT,
 )
 from .adversarial import (
     AdversarialSuite, AdversarialReport, AxisEstimate, ProbeResult, adversarial_report_text,
@@ -84,6 +85,7 @@ __all__ = [
     "ExternalOutcomeVerifier", "ExternalVerification", "PredictionView", "record_external_outcome",
     "validate", "validate_all_targets", "prediction_targets", "build_pairs", "validation_report_text", "ValidationReport", "ValidationPair", "VERDICTS",
     "validation_report_markdown", "PROTOCOL_THRESHOLDS", "CLAIM_LEVELS", "donor_agreement",
+    "cohort_summary", "scenario_rule_status", "SCENARIO_RETIREMENT",
     "AdversarialSuite", "AdversarialReport", "AxisEstimate", "ProbeResult", "adversarial_report_text",
     "EvidenceStoreHook",
     "trust_report", "compatibility_report", "trust_report_docx",
