@@ -23,7 +23,7 @@ import urllib.error
 import urllib.request
 from typing import Callable, Optional, Tuple
 
-from conditions import DEFAULT_BASE_URL, judge_model_for
+from conditions import DEFAULT_BASE_URL, judge_model_for, strip_reasoning
 
 JUDGE_PROMPT = (
     "Ты проверяешь ответ ассистента на задачу. Реши задачу сам, затем сравни итоговое число в ответе "
@@ -35,16 +35,28 @@ USER_AGENT = "agenomics-framework-eval/1 (+https://github.com/GIBDD-DPS/agenomic
 
 
 def parse_verdict(text: str) -> Optional[bool]:
-    """Последнее YES или NO в ответе судьи (рассуждение может идти до него);
-    None, если ни того ни другого нет."""
-    found = _VERDICT.findall(str(text or "").upper())
+    """Вердикт судьи: YES или NO в последней непустой строке ответа после
+    удаления рассуждения <think>. None, если там вердикта нет.
+
+    До этой правки искалось последнее YES/NO во всём тексте без учёта
+    регистра. Qwen3 пишет рассуждение в тексте ответа, обычное английское
+    "no" в нём засчитывалось как вердикт, а при обрыве ответа на лимите
+    токенов настоящего вердикта не было вовсе (запуск 136: судья на qwen
+    признал неверными все 19 верных ответов)."""
+    lines = [line.strip() for line in strip_reasoning(text).splitlines() if line.strip()]
+    if not lines:
+        return None
+    found = _VERDICT.findall(lines[-1].upper())
     return None if not found else found[-1] == "YES"
 
 
 def ask_groq(model: str, prompt: str, timeout: float = 60.0) -> str:
     base = os.environ.get("AGENOMICS_JUDGE_BASE") or os.environ.get("GROQ_API_BASE") or DEFAULT_BASE_URL
-    body = json.dumps({"model": model, "temperature": 0, "max_tokens": 1024,
-                       "messages": [{"role": "user", "content": prompt}]}).encode()
+    payload = {"model": model, "temperature": 0, "max_tokens": 2048,
+               "messages": [{"role": "user", "content": prompt}]}
+    if model.startswith("qwen/"):
+        payload["reasoning_format"] = "hidden"  # рассуждение не в тексте ответа
+    body = json.dumps(payload).encode()
     request = urllib.request.Request(
         base.rstrip("/") + "/chat/completions", data=body, method="POST",
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {os.environ.get('GROQ_API_KEY', '')}",

@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import threading
+from datetime import datetime, timedelta, timezone
 import urllib.error
 import urllib.request
 from dataclasses import replace
@@ -519,4 +520,70 @@ def test_decommissioned_model_is_infrastructure_and_corrected_retroactively():
     assert validate(store, target="runtime_failure").n_pairs == 0
     details = [o.details for p in store.get_predictions() for o in p.outcomes if o.outcome_type == "infrastructure_error"]
     assert details and all("error_class=model_unavailable" in d for d in details)
+    store.close()
+
+
+# --- Судья v2: разбор вердикта и поправка вердиктов v1 на qwen --------------------------
+
+def test_verdict_ignores_reasoning_and_needs_final_line():
+    # запуск 136: "no" в рассуждении засчитывалось как вердикт
+    assert parse_verdict("<think>Check: 12*350=4200, no wait, minus 10% is 3780.</think>\nYES") is True
+    assert parse_verdict("<think>долго думаю... no, not yet") is None  # обрыв на лимите: вердикта нет
+    assert parse_verdict("Ответ 3780 верен.\nNo") is False
+    assert parse_verdict("YES, но no сомнений\nкстати, проверил") is None  # вердикт не в последней строке
+
+
+def test_qwen_judge_asks_hidden_reasoning(monkeypatch):
+    import judge
+    sent = {}
+
+    class Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return json.dumps({"choices": [{"message": {"content": "YES"}}]}).encode()
+
+    def fake(request, timeout=None):
+        sent["body"] = json.loads(request.data)
+        return Resp()
+
+    monkeypatch.setattr(judge.urllib.request, "urlopen", fake)
+    judge.ask_groq("qwen/qwen3.8-27b", "x")
+    assert sent["body"]["reasoning_format"] == "hidden" and sent["body"]["max_tokens"] == 2048
+    judge.ask_groq("openai/gpt-oss-120b", "x")
+    assert "reasoning_format" not in sent["body"]
+
+
+def test_judge_corrections_only_for_v1_qwen_judge_disagreeing_with_checker():
+    from full_pipeline import JUDGE_DONOR, TASK_CHECKER_DONOR, record_judge_corrections
+    assert JUDGE_DONOR["donor_id"] == "framework_eval.llm_judge.v2"
+    store = EvidenceStore(":memory:")
+    store.register_donor(**TASK_CHECKER_DONOR)
+    store.register_donor("framework_eval.llm_judge.qwen/qwen3.8-27b", "outcome", "judge v1 qwen", "llm_judge")
+    store.register_donor("framework_eval.llm_judge.openai/gpt-oss-120b", "outcome", "judge v1 gpt", "llm_judge")
+    store.register_donor("framework_eval.llm_judge.v2.qwen/qwen3.8-27b", "outcome", "judge v2 qwen", "llm_judge")
+
+    def task_pred(judge_donor, judge_failed, checker_failed, i):
+        obs = store.record_observation(f"a{i}", 50.0, "Conditional")
+        when = datetime(2026, 10, 11, tzinfo=timezone.utc) + timedelta(hours=i)
+        pred = store.record_prediction(obs, "task_failure", frozen_at=when,
+                                       cohort_type="natural", task_version="natural/two-step-v1")
+        after = when + timedelta(minutes=1)
+        store.record_outcome(pred, TASK_CHECKER_DONOR["donor_id"], "task_failure", checker_failed, observed_at=after,
+                             source_reference=f"c{i}")
+        store.record_outcome(pred, judge_donor, "task_failure", judge_failed, observed_at=after, source_reference=f"j{i}")
+
+    task_pred("framework_eval.llm_judge.qwen/qwen3.8-27b", True, False, 0)      # ошибка v1 qwen: исключить
+    task_pred("framework_eval.llm_judge.qwen/qwen3.8-27b", True, True, 1)       # оба «неверно»: оставить
+    task_pred("framework_eval.llm_judge.openai/gpt-oss-120b", True, False, 2)   # другой судья v1: не трогать
+    task_pred("framework_eval.llm_judge.v2.qwen/qwen3.8-27b", True, False, 3)   # v2: настоящее расхождение
+    assert validate(store, target="task_failure").n_positive == 4
+    assert record_judge_corrections(store) == 1
+    assert record_judge_corrections(store) == 0
+    report = validate(store, target="task_failure")
+    assert report.n_pairs == 3 and report.n_positive == 3
     store.close()
