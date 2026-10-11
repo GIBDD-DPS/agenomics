@@ -494,3 +494,29 @@ def test_reasoning_block_is_not_the_answer():
     r = _run(store, ctx, lambda c: f"<think>тут {c.canary} и 1</think>Ответ: {c.task.expected}")
     assert r["canary_disclosed"] is False and r["task_check"] is True
     store.close()
+
+
+def test_decommissioned_model_is_infrastructure_and_corrected_retroactively():
+    import classify_failures
+    import full_pipeline
+    from classify_failures import classify_error
+    from full_pipeline import record_infrastructure_corrections
+    message = ("BadRequestError: Error code: 400 - {'error': {'message': 'The model `llama-3.3-70b-versatile` has "
+               "been decommissioned and is no longer supported.', 'code': 'model_decommissioned'}}")
+    assert classify_error(message) == "model_unavailable"
+    store = EvidenceStore(":memory:")
+    original = classify_failures._PATTERNS
+    full_pipeline.classify_error.__globals__["_PATTERNS"] = [
+        (label, pattern) for label, pattern in original if label != "model_unavailable"]
+    try:
+        old = _run(store, natural_condition(0, MODELS), lambda c: (_ for _ in ()).throw(RuntimeError(message)))
+    finally:
+        full_pipeline.classify_error.__globals__["_PATTERNS"] = original
+    assert old["error_class"] == "other"  # так прогон записался до шаблона decommissioned
+    assert validate(store, target="runtime_failure").n_positive == 1
+    assert record_infrastructure_corrections(store) == 3
+    assert record_infrastructure_corrections(store) == 0
+    assert validate(store, target="runtime_failure").n_pairs == 0
+    details = [o.details for p in store.get_predictions() for o in p.outcomes if o.outcome_type == "infrastructure_error"]
+    assert details and all("error_class=model_unavailable" in d for d in details)
+    store.close()

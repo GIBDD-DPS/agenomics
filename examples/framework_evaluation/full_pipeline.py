@@ -27,7 +27,7 @@ import os
 import platform
 import re
 from datetime import datetime
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from agenomics import EvidenceStore, TrustScorer, trust_report
 
@@ -246,20 +246,24 @@ def _harness_rejected(codes) -> bool:
     return any(400 <= int(c) < 500 and int(c) != 429 for c in codes)
 
 
-def record_harness_corrections(store: EvidenceStore) -> int:
-    """Исключает задним числом прогоны, упавшие из-за ошибки нашей обвязки
-    (класс harness_error в classify_failures.py), записанные, пока класса
-    ещё не было. Записи графа неизменяемы, поэтому исправление это новая
-    запись: каждому предсказанию такого прогона дописывается исход
-    infrastructure_error с пометкой в details, и Validation Engine
-    исключает предсказание, как любой сбой окружения. Повторный вызов
-    ничего не добавляет (отпечаток исхода). Возвращает число записанных
-    поправок."""
-    harness_obs = set()
+def record_infrastructure_corrections(store: EvidenceStore) -> int:
+    """Исключает задним числом прогоны, которые текущий классификатор
+    (classify_failures.py) относит к сбою окружения или обвязки, а при
+    записи они попали в падения агента: класса или шаблона тогда ещё не
+    было (harness_error, снятые модели с текстом "decommissioned").
+    Записи графа неизменяемы, поэтому исправление это новая запись: каждому
+    предсказанию такого прогона дописывается исход infrastructure_error с
+    классом и пометкой в details, и Validation Engine исключает
+    предсказание, как любой сбой окружения. История для Trust Score
+    переклассифицирует такие прогоны сама (_is_infrastructure_failure).
+    Повторный вызов ничего не добавляет (отпечаток исхода). Возвращает
+    число записанных поправок."""
+    corrected: Dict[int, str] = {}
     for obs in store.get_observations():
         for inc in obs.incidents:
-            if classify_error(inc.get("description") or "") == "harness_error":
-                harness_obs.add(obs.id)
+            error_class = classify_error(inc.get("description") or "")
+            if error_class in _INFRASTRUCTURE_ERROR_CLASSES:
+                corrected.setdefault(obs.id, error_class)
     predictions = store.get_predictions()
     # stress_runtime: апстрим за прокси отклонил сам запрос (4xx), а прогон
     # упал; признак в details исхода runtime ("upstream_errors=[404]").
@@ -267,23 +271,28 @@ def record_harness_corrections(store: EvidenceStore) -> int:
         for o in prediction.outcomes:
             match = _UPSTREAM_ERRORS.search(o.details or "") if o.outcome_type == "execution_error" and o.occurred else None
             if match and _harness_rejected([c for c in match.group(1).replace(" ", "").split(",") if c]):
-                harness_obs.add(prediction.observation_id)
-    if not harness_obs:
+                corrected.setdefault(prediction.observation_id, "harness_error")
+    if not corrected:
         return 0
     store.register_donor(**RUNTIME_DONOR)
     added = 0
     for prediction in predictions:
-        if prediction.observation_id not in harness_obs:
-            continue
-        if any(o.outcome_type == "infrastructure_error" for o in prediction.outcomes):
+        error_class = corrected.get(prediction.observation_id)
+        if error_class is None or any(o.outcome_type == "infrastructure_error" for o in prediction.outcomes):
             continue
         store.record_outcome(
             prediction.id, RUNTIME_DONOR["donor_id"], "infrastructure_error", occurred=True,
-            outcome_class="INFRASTRUCTURE", quality_level="Q1", source_reference=HARNESS_CORRECTION_REFERENCE,
-            details="error_class=harness_error; поправка: прогон упал из-за обвязки, а не агента",
+            outcome_class="INFRASTRUCTURE", quality_level="Q1",
+            source_reference=HARNESS_CORRECTION_REFERENCE if error_class == "harness_error"
+            else f"correction:{error_class}",
+            details=f"error_class={error_class}; поправка: прогон упал из-за окружения или обвязки, а не агента",
         )
         added += 1
     return added
+
+
+# Прежнее имя: поправка начиналась с одного класса harness_error.
+record_harness_corrections = record_infrastructure_corrections
 
 
 def _load_history_from_store(store: EvidenceStore, agent_id: str):
