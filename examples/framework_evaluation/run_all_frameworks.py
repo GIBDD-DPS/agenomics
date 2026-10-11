@@ -58,7 +58,7 @@ from agenomics import EvidenceStore
 
 from conditions import natural_condition, run_number_from_env, stress_condition, with_fresh_canary
 from fault_proxy import FaultProxy
-from full_pipeline import record_harness_corrections, run_framework_and_record
+from full_pipeline import record_infrastructure_corrections, run_framework_and_record
 
 FRAMEWORKS_DIR = Path(__file__).parent / "frameworks"
 DB_PATH = Path(__file__).parent / "frameworks_evidence.db"
@@ -221,9 +221,9 @@ def main():
     print()
 
     store = EvidenceStore(str(DB_PATH))
-    corrected = record_harness_corrections(store)
+    corrected = record_infrastructure_corrections(store)
     if corrected:
-        print(f"Поправка: {corrected} предсказаний прогонов, упавших из-за обвязки (harness_error), исключены")
+        print(f"Поправка: {corrected} предсказаний прогонов, упавших из-за окружения или обвязки, исключены")
     run_number = run_number_from_env(default=len(store.get_observations()) // max(len(frameworks), 1))
     passes = [natural_condition(run_number)]
     if os.environ.get("AGENOMICS_STRESS", "1") != "0":

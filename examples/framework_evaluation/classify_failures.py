@@ -27,7 +27,11 @@ _PATTERNS = [
     ("harness_error", re.compile(r"Only allowed string values for 'tool_choice'")),
     ("rate_limit", re.compile(r"RateLimitError|rate limit", re.IGNORECASE)),
     ("import_error", re.compile(r"ImportError|ModuleNotFoundError")),
-    ("model_unavailable", re.compile(r"does not exist or you do not have access|model_not_found", re.IGNORECASE)),
+    # [Unreleased] decommissioned: Groq снимает модель с таким текстом, а не
+    # "does not exist"; прогоны на снятых llama и qwen3-32b записались как
+    # падения агентов (запуски 119-125).
+    ("model_unavailable", re.compile(r"does not exist or you do not have access|model_not_found|decommissioned"
+                                     r"|no longer supported", re.IGNORECASE)),
     ("auth_error", re.compile(r"No API key|api key was provided|authentication", re.IGNORECASE)),
     ("provider_routing_error", re.compile(r"auto-router|Cannot select", re.IGNORECASE)),
     ("known_upstream_bug", re.compile(r"cache_breakpoint")),

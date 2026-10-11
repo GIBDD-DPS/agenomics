@@ -166,6 +166,19 @@ class HoldoutResult:
     # [v0.9.6] Тот же интервал AUC, но ресэмплируются конфигурации (genome_hash):
     # сто прогонов одной конфигурации не сто независимых доказательств.
     roc_auc_ci_by_genome: Optional[Tuple[float, float]] = None
+    # [Unreleased] Внутри условия (задача x модель): ранжирует ли score
+    # агентов при одинаковых условиях. Условие меняется от запуска к
+    # запуску и задаёт частоту событий сильнее агента, а score об условии
+    # не знает; без стратификации AUC сравнивает в основном запуски.
+    stratified_auc: Optional[float] = None
+    stratified_auc_ci: Optional[Tuple[float, float]] = None
+    stratified_history_auc: Optional[float] = None
+    stratified_difference_ci: Optional[Tuple[float, float]] = None
+    stratified_comparisons: int = 0
+    stratified_strata: int = 0
+    # [Unreleased] Baseline «частота событий условия» (из калибровочной части):
+    # сколько объясняют сами условия, без агента.
+    baseline_condition_rate: Optional[Metrics] = None
 
 
 @dataclass
@@ -531,6 +544,51 @@ def bootstrap_auc_difference_ci(
     )
 
 
+def _stratum(pair: ValidationPair) -> Tuple[str, str]:
+    return (pair.task_version or "—", pair.model_version or "—")
+
+
+def stratified_auc(pairs: Sequence[ValidationPair], scores: Optional[Sequence[float]] = None) -> Tuple[Optional[float], int, int]:
+    """[Unreleased] AUC внутри условий: доля сравнений «с событием против
+    без события» в одном условии (задача x модель), где у пары с событием
+    выше риск (ничьи 0.5). Равно AUC условий, взвешенному числом сравнений.
+    scores: риск для каждой пары (по умолчанию 100 - Trust Score).
+    Возвращает (AUC или None, число сравнений, число условий с обоими классами)."""
+    scores = list(scores) if scores is not None else [p.risk for p in pairs]
+    groups: Dict[Tuple[str, str], List[Tuple[float, bool]]] = {}
+    for p, score in zip(pairs, scores):
+        groups.setdefault(_stratum(p), []).append((score, p.occurred))
+    weighted = comparisons = strata = 0
+    for items in groups.values():
+        n_pos = sum(1 for _, y in items if y)
+        n_neg = len(items) - n_pos
+        if not n_pos or not n_neg:
+            continue
+        auc = roc_auc([x for x, _ in items], [y for _, y in items])
+        weighted += auc * n_pos * n_neg
+        comparisons += n_pos * n_neg
+        strata += 1
+    return (round(weighted / comparisons, 4) if comparisons else None), comparisons, strata
+
+
+def _stratified_bootstrap(pairs, history, n_resamples=1000, seed=0):
+    """Интервалы стратифицированного AUC score и его разницы с историей
+    агента, кластерный bootstrap по агентам."""
+    items = list(zip(pairs, history))
+
+    def trust(sample):
+        return stratified_auc([p for p, _ in sample])[0]
+
+    def difference(sample):
+        a = stratified_auc([p for p, _ in sample])[0]
+        b = stratified_auc([p for p, _ in sample], [h for _, h in sample])[0]
+        return None if a is None or b is None else a - b
+
+    by_agent = lambda x: x[0].agent_id  # noqa: E731
+    return (_cluster_bootstrap(items, by_agent, trust, n_resamples, seed),
+            _cluster_bootstrap(items, by_agent, difference, n_resamples, seed))
+
+
 # --- Holdout -----------------------------------------------------------------
 
 def _best_threshold(pairs: Sequence[ValidationPair]) -> Optional[float]:
@@ -576,6 +634,21 @@ def _holdout(pairs: List[ValidationPair], calibration_fraction: float, min_agent
         majority = calib_rate >= 0.5
         majority_acc = round(sum(1 for y in labels if y == majority) / len(test), 4)
 
+    # [Unreleased] Частота событий условия в калибровочной части.
+    per_condition: Dict[Tuple[str, str], List[bool]] = {}
+    for p in calib:
+        per_condition.setdefault(_stratum(p), []).append(p.occurred)
+    condition_prob = [
+        (sum(per_condition[_stratum(p)]) / len(per_condition[_stratum(p)])) if _stratum(p) in per_condition
+        else (calib_rate or 0.0)
+        for p in test
+    ]
+    s_auc, s_comparisons, s_strata = stratified_auc(test)
+    s_history = stratified_auc(test, history_prob)[0]
+    s_ci = s_diff_ci = None
+    if s_comparisons >= 2:
+        s_ci, s_diff_ci = _stratified_bootstrap(test, history_prob)
+
     n_agents = len({p.agent_id for p in test})
     by_agent = n_agents >= min_agents_for_cluster
     return HoldoutResult(
@@ -596,6 +669,9 @@ def _holdout(pairs: List[ValidationPair], calibration_fraction: float, min_agent
         ),
         baseline_agent_history=_metrics(history_prob, labels, probabilities=history_prob),
         roc_auc_ci_by_genome=bootstrap_auc_ci(test, by="genome") if test else None,
+        stratified_auc=s_auc, stratified_auc_ci=s_ci, stratified_history_auc=s_history,
+        stratified_difference_ci=s_diff_ci, stratified_comparisons=s_comparisons, stratified_strata=s_strata,
+        baseline_condition_rate=_metrics(condition_prob, labels, probabilities=condition_prob) if test else None,
     )
 
 
@@ -1050,6 +1126,13 @@ def validation_report_text(report: ValidationReport) -> str:
             f"(CI разницы с Trust Score {h.auc_difference_vs_agent_history_ci}), "
             f"Brier {h.baseline_agent_history.brier}; константа: Brier {h.baseline_constant_brier}",
         ]
+        if h.baseline_condition_rate is not None:
+            lines.append(f"    Baseline частота условия (задача x модель): ROC-AUC {h.baseline_condition_rate.roc_auc}")
+        lines.append(
+            f"    Внутри условия: ROC-AUC {h.stratified_auc} CI {h.stratified_auc_ci} (bootstrap по агентам), "
+            f"история агента {h.stratified_history_auc}, CI разницы {h.stratified_difference_ci}; "
+            f"сравнений {h.stratified_comparisons}, условий {h.stratified_strata}"
+        )
     lines.append(f"  Уровень утверждений: {report.claim_level}"
                  + (f"; до следующего не хватает: {'; '.join(report.claim_blockers)}" if report.claim_blockers else ""))
     lines.append("  Brier и калибровка считаются по наивной вероятности p = (100 - score) / 100.")
@@ -1172,6 +1255,12 @@ def validation_report_markdown(profile, reports: Dict[str, "ValidationReport"], 
                     f"- baseline «история агента»: ROC-AUC {h.baseline_agent_history.roc_auc}, CI разницы "
                     f"{h.auc_difference_vs_agent_history_ci}. В framework_evaluation агент и есть фреймворк, "
                     f"так что это и baseline по фреймворку",
+                    f"- baseline «частота условия» (задача x модель): ROC-AUC "
+                    f"{h.baseline_condition_rate.roc_auc if h.baseline_condition_rate else None}",
+                    f"- **внутри условия**: ROC-AUC {h.stratified_auc}, CI {h.stratified_auc_ci}; история агента "
+                    f"{h.stratified_history_auc}, CI разницы {h.stratified_difference_ci}; сравнений "
+                    f"{h.stratified_comparisons}, условий {h.stratified_strata}. Ранжирует ли score агентов при "
+                    f"одинаковых условиях",
                 ]
             md += _breakdown_markdown(r, target)
             if r.legacy_note:

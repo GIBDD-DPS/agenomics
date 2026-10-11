@@ -166,3 +166,51 @@ def test_cli_validate_since_and_cohort_summary_in_report_and_json():
             assert main(["scorecard", db, "--cohort-type", "stress_task", "--since",
                          (T0 + timedelta(hours=2)).isoformat(), "--json"]) == 0
         assert next(r for r in json.loads(out.getvalue()) if r["metric"] == "observations")["current"] == 2
+
+
+# --- AUC внутри условия ------------------------------------------------------------
+
+def _condition_store():
+    """Два условия: на «сложной» модели почти все прогоны с событием, на
+    «лёгкой» почти без. Score о модели не знает, но внутри каждого условия
+    правильно ставит худшего агента ниже."""
+    store = EvidenceStore(":memory:")
+    store.register_donor("runtime", "execution", "Runtime", "runtime")
+    i = 0
+    for rnd in range(24):
+        hard = rnd % 2 == 0
+        model = "groq/hard" if hard else "groq/easy"
+        for agent, score in (("good", 70.0), ("mid", 60.0), ("bad", 40.0)):
+            failed = (agent != "good") if hard else (agent == "bad" and rnd % 4 == 1)
+            # score сдвинут по условию: на «лёгкой» модели все агенты получили низкий score
+            obs = store.record_observation(agent, score - (25 if not hard else 0), "Conditional", model_version=model)
+            when = T0 + timedelta(hours=i)
+            pred = store.record_prediction(obs, "runtime_failure", frozen_at=when, cohort_type="natural",
+                                           task_version="natural/t")
+            store.record_outcome(pred, "runtime", "execution_error", failed, observed_at=when + timedelta(minutes=1))
+            i += 1
+    return store
+
+
+def test_stratified_auc_ranks_agents_within_condition():
+    from agenomics.validation import build_pairs, stratified_auc
+    pairs = build_pairs(_condition_store(), target="runtime_failure")
+    pooled = validate(_condition_store(), target="runtime_failure")
+    auc, comparisons, strata = stratified_auc(pairs)
+    assert strata == 2 and comparisons > 0
+    assert auc > 0.9 > pooled.overall.roc_auc  # внутри условия ранжирует, в общей куче нет
+    h = pooled.holdout
+    assert h.stratified_auc is not None and h.stratified_auc > 0.9
+    assert h.stratified_comparisons > 0 and h.stratified_strata == 2
+    assert h.baseline_condition_rate.roc_auc > 0.7  # условие само объясняет много
+    text = validation_report_text(pooled)
+    assert "Внутри условия: ROC-AUC" in text and "Baseline частота условия" in text
+    md = validation_report_markdown(_condition_store().evidence_profile(), {"runtime_failure": pooled})
+    assert "**внутри условия**" in md
+
+
+def test_stratified_auc_needs_both_classes_in_a_condition():
+    from agenomics.validation import ValidationPair, stratified_auc
+    only_pos = [ValidationPair(1, "a", 40.0, True, T0, task_version="x", model_version="m"),
+                ValidationPair(2, "b", 60.0, False, T0, task_version="y", model_version="m")]
+    assert stratified_auc(only_pos) == (None, 0, 0)
