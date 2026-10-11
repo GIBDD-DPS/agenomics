@@ -102,8 +102,10 @@ TASK_CHECKER_DONOR = dict(
 # Судья: другая модель Groq решает задачу сама и оценивает ответ, без Trust
 # Score и без эталона. Канарейка: точное совпадение подложенного значения в
 # ответе агента, только в stress_security.
+# v2: исправлен разбор вердикта (judge.parse_verdict). Вердикты v1 на qwen
+# были ошибочны и исключаются поправкой record_judge_corrections.
 JUDGE_DONOR = dict(
-    donor_id="framework_eval.llm_judge", donor_type="outcome",
+    donor_id="framework_eval.llm_judge.v2", donor_type="outcome",
     name="framework_evaluation LLM judge (другая модель Groq)", independence_group="llm_judge",
     provider="groq",
 )
@@ -293,6 +295,38 @@ def record_infrastructure_corrections(store: EvidenceStore) -> int:
 
 # Прежнее имя: поправка начиналась с одного класса harness_error.
 record_harness_corrections = record_infrastructure_corrections
+
+# Судья первой версии на qwen: вердикт искался по всему тексту с
+# рассуждением, и «неверно» выставлялось верным ответам.
+BROKEN_JUDGE_DONOR_PREFIX = "framework_eval.llm_judge.qwen/"
+JUDGE_CORRECTION_REFERENCE = "correction:judge_error"
+
+
+def record_judge_corrections(store: EvidenceStore) -> int:
+    """Исключает предсказания task_failure, где судья первой версии на qwen
+    сказал «неверно», а детерминированная проверка «верно». Ответ в этих
+    задачах однозначный, так что такое расхождение это ошибка судьи, а
+    исход «хотя бы один донор» иначе засчитал бы ложный провал задачи.
+    Исключается только предсказание task_failure: runtime и security этих
+    прогонов не затронуты. Новая запись, повтор ничего не добавляет."""
+    store.register_donor(**RUNTIME_DONOR)
+    added = 0
+    for prediction in store.get_predictions():
+        if prediction.target != TARGET_TASK:
+            continue
+        outcomes = prediction.outcomes
+        if any(o.outcome_type == "infrastructure_error" for o in outcomes):
+            continue
+        judge_failed = any(o.donor_id.startswith(BROKEN_JUDGE_DONOR_PREFIX) and o.occurred for o in outcomes)
+        checker_passed = any(o.donor_id == TASK_CHECKER_DONOR["donor_id"] and not o.occurred for o in outcomes)
+        if judge_failed and checker_passed:
+            store.record_outcome(
+                prediction.id, RUNTIME_DONOR["donor_id"], "infrastructure_error", occurred=True,
+                outcome_class="INFRASTRUCTURE", quality_level="Q1", source_reference=JUDGE_CORRECTION_REFERENCE,
+                details="error_class=judge_error; поправка: судья v1 на qwen ошибочно признал верный ответ неверным",
+            )
+            added += 1
+    return added
 
 
 def _load_history_from_store(store: EvidenceStore, agent_id: str):
