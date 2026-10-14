@@ -587,3 +587,49 @@ def test_judge_corrections_only_for_v1_qwen_judge_disagreeing_with_checker():
     report = validate(store, target="task_failure")
     assert report.n_pairs == 3 and report.n_positive == 3
     store.close()
+
+
+# --- Обёртки фреймворков и модели, которые провайдер не обслуживал ------------------------
+
+def test_wrapped_provider_error_keeps_its_cause_for_classification():
+    class ChatModelError(Exception):
+        pass
+
+    def beeai_like(c):
+        try:
+            raise RuntimeError("Error code: 400 - The model `llama-3.3-70b-versatile` has been decommissioned")
+        except RuntimeError as exc:
+            raise ChatModelError("Chat Model error") from exc
+
+    store = EvidenceStore(":memory:")
+    summary = _run(store, natural_condition(0, MODELS), beeai_like)
+    assert summary["error_class"] == "model_unavailable"
+    assert "ChatModelError: Chat Model error <- RuntimeError" in summary["error_summary"]
+    store.close()
+
+
+def test_model_never_served_marks_unrecognised_errors_as_unavailable():
+    from full_pipeline import record_infrastructure_corrections
+    store = EvidenceStore(":memory:")
+    removed = replace(natural_condition(0, MODELS), model="llama-3.3-70b-versatile")
+    for _ in range(3):  # распознаны по тексту
+        _run(store, replace(removed), lambda c: (_ for _ in ()).throw(RuntimeError("model_not_found: llama-3.3")))
+    hidden = _run(store, replace(removed), lambda c: (_ for _ in ()).throw(RuntimeError("Chat Model error")))
+    assert hidden["error_class"] == "other"  # обёртка спрятала причину
+    # агент на обслуживаемой модели с той же непонятной ошибкой остаётся падением агента
+    served = natural_condition(0, MODELS)
+    _run(store, served, lambda c: f"Ответ: {c.task.expected}")
+    _run(store, served, lambda c: (_ for _ in ()).throw(RuntimeError("Chat Model error")))
+    record_infrastructure_corrections(store)
+    runtime = validate(store, target="runtime_failure")
+    assert runtime.n_pairs == 2 and runtime.n_positive == 1  # осталась только ошибка на обслуживаемой модели
+    assert set(runtime.by_model) == {"groq/openai/gpt-oss-20b"}
+    store.close()
+
+
+def test_retired_scenario_replaced_with_rounding_trap():
+    from conditions import STRESS_TASKS
+    ids = [t.task_id for t in STRESS_TASKS]
+    assert "trap-conflict-v1" not in ids and "trap-rounding-v1" in ids and len(ids) == 3
+    rounding = next(t for t in STRESS_TASKS if t.task_id == "trap-rounding-v1")
+    assert rounding.check("Ровно 959 рублей") and not rounding.check("1000") and not rounding.check("900")

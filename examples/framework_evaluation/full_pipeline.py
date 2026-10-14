@@ -226,6 +226,20 @@ def _configuration_hash(**configuration) -> str:
     ).encode()).hexdigest()[:16]
 
 
+def _error_chain(exc: BaseException, depth: int = 3) -> str:
+    """Текст исключения вместе с причинами (__cause__/__context__). Часть
+    фреймворков заворачивает ошибку провайдера в свою без подробностей
+    (beeai: «ChatModelError: Chat Model error»), и без причины её нельзя
+    классифицировать: прогоны на снятых моделях записывались как падения
+    агента (запуски 119-125)."""
+    parts, seen, current = [], set(), exc
+    while current is not None and id(current) not in seen and len(parts) <= depth:
+        seen.add(id(current))
+        parts.append(f"{type(current).__name__}: {current}")
+        current = current.__cause__ or current.__context__
+    return " <- ".join(parts)
+
+
 def _is_infrastructure_failure(obs) -> bool:
     """Упал ли прогон из-за окружения, а не агента. Для данных до 0.7.12,
     где категории infrastructure ещё не было, класс восстанавливается по
@@ -261,11 +275,27 @@ def record_infrastructure_corrections(store: EvidenceStore) -> int:
     Повторный вызов ничего не добавляет (отпечаток исхода). Возвращает
     число записанных поправок."""
     corrected: Dict[int, str] = {}
-    for obs in store.get_observations():
+    observations = store.get_observations()
+    for obs in observations:
         for inc in obs.incidents:
             error_class = classify_error(inc.get("description") or "")
             if error_class in _INFRASTRUCTURE_ERROR_CLASSES:
                 corrected.setdefault(obs.id, error_class)
+    # Модель, которую провайдер не обслуживал: ни одного успешного прогона,
+    # и большинство её ошибок распознаны как model_unavailable. Тогда и
+    # нераспознанные ошибки на ней (обёртка фреймворка спрятала причину)
+    # это недоступная модель, а не агент.
+    per_model: Dict[str, Dict[str, list]] = {}
+    for obs in observations:
+        if not obs.model_version or obs.execution_status is None:
+            continue
+        row = per_model.setdefault(obs.model_version, {"success": [], "error": []})
+        row["success" if obs.execution_status == "success" else "error"].append(obs.id)
+    for model, row in per_model.items():
+        recognised = sum(1 for oid in row["error"] if corrected.get(oid) == "model_unavailable")
+        if not row["success"] and row["error"] and recognised >= max(3, len(row["error"]) / 2):
+            for oid in row["error"]:
+                corrected.setdefault(oid, "model_unavailable")
     predictions = store.get_predictions()
     # stress_runtime: апстрим за прокси отклонил сам запрос (4xx), а прогон
     # упал; признак в details исхода runtime ("upstream_errors=[404]").
@@ -515,7 +545,7 @@ def run_framework_and_record(
         # невозможно понять, упал ли фреймворк из-за отсутствия
         # OPENAI_API_KEY, ImportError или чего-то ещё. Обрезаем до 300
         # символов, чтобы длинный traceback не раздувал Incident.description.
-        error_summary = f"{type(exc).__name__}: {exc}"[:300]
+        error_summary = _error_chain(exc)[:300]
     finally:
         for name in loggers:
             logging.getLogger(name).removeHandler(handler)
